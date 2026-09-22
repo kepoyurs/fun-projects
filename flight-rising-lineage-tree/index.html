@@ -115,6 +115,18 @@
   .form-actions { display: flex; gap: 8px; margin-top: 16px; }
   .form-actions button { flex: 1; }
 
+  .chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; min-height: 4px; }
+  .chip {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
+    padding: 3px 6px 3px 10px; font-size: 0.78rem;
+  }
+  .chip button {
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; font-size: 0.85rem; line-height: 1; padding: 2px;
+  }
+  .chip button:hover { color: var(--danger); }
+
   .dragon-list { margin-top: 4px; }
   .dragon-list-item {
     display: flex;
@@ -296,9 +308,13 @@
       </div>
     </div>
 
-    <label for="mate">Mate</label>
-    <select id="mate"><option value="">None</option></select>
-    <p class="hint">Just marks a breeding pair &mdash; no parents or generation required for either dragon.</p>
+    <label>Mates</label>
+    <div class="chip-list" id="mateChips"></div>
+    <div class="parse-row">
+      <select id="mateAddSelect"><option value="">Add an existing dragon as a mate&hellip;</option></select>
+      <button class="btn secondary" id="mateAddBtn">Add</button>
+    </div>
+    <p class="hint">A dragon can have more than one mate &mdash; no parents or generation required for any of them.</p>
 
     <h3 onclick="document.getElementById('parentFields').classList.toggle('open')" style="cursor:pointer;">Parents &amp; generation (optional) &#9662;</h3>
     <div class="trait-fields" id="parentFields">
@@ -402,6 +418,13 @@ function loadState() {
     });
     parsed.lineages = Array.from(seen).sort((a, b) => a.localeCompare(b));
   }
+  // migrate from the old single-mate model to a multi-mate list
+  parsed.dragons.forEach(d => {
+    if (!Array.isArray(d.mates)) {
+      d.mates = d.mate ? [d.mate] : [];
+    }
+    delete d.mate;
+  });
   return parsed;
 }
 
@@ -415,6 +438,7 @@ function saveState() {
 
 let state = loadState();
 let editingId = null;
+let formMates = []; // mate ids currently staged in the open form, applied on Save
 let currentFilter = localStorage.getItem(FILTER_KEY) || 'ALL';
 
 function dragonLineage(d) {
@@ -617,7 +641,9 @@ const els = {
   gender: document.getElementById('gender'),
   parent1: document.getElementById('parent1'),
   parent2: document.getElementById('parent2'),
-  mate: document.getElementById('mate'),
+  mateChips: document.getElementById('mateChips'),
+  mateAddSelect: document.getElementById('mateAddSelect'),
+  mateAddBtn: document.getElementById('mateAddBtn'),
   breed: document.getElementById('breed'),
   primaryColor: document.getElementById('primaryColor'),
   primaryGene: document.getElementById('primaryGene'),
@@ -713,7 +739,8 @@ function resetForm() {
   els.gender.value = '';
   els.parent1.value = '';
   els.parent2.value = '';
-  els.mate.value = '';
+  formMates = [];
+  renderMateChips();
   els.breed.value = '';
   els.primaryColor.value = '';
   els.primaryGene.value = '';
@@ -745,21 +772,50 @@ function populateParentSelects() {
     sel.value = current;
   });
 
-  // mate list is deliberately independent of generation/parent data
-  const current = els.mate.value;
-  els.mate.innerHTML = '<option value="">None</option>';
+  // mate candidates are deliberately independent of generation/parent data
+  els.mateAddSelect.innerHTML = '<option value="">Add an existing dragon as a mate&hellip;</option>';
   state.dragons
     .slice()
     .sort((a, b) => a.nickname.localeCompare(b.nickname))
     .forEach(d => {
       if (editingId && d.id === editingId) return; // can't be own mate
+      if (formMates.includes(d.id)) return; // already added
       const opt = document.createElement('option');
       opt.value = d.id;
       opt.textContent = d.nickname || 'Unnamed';
-      els.mate.appendChild(opt);
+      els.mateAddSelect.appendChild(opt);
     });
-  els.mate.value = current;
+
+  renderMateChips();
 }
+
+function renderMateChips() {
+  els.mateChips.innerHTML = '';
+  formMates.forEach(mateId => {
+    const mateDragon = state.dragons.find(x => x.id === mateId);
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    const label = document.createElement('span');
+    label.textContent = mateDragon ? (mateDragon.nickname || 'Unnamed') : 'Unknown';
+    chip.appendChild(label);
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = '✕';
+    removeBtn.title = 'Remove';
+    removeBtn.addEventListener('click', () => {
+      formMates = formMates.filter(id => id !== mateId);
+      populateParentSelects();
+    });
+    chip.appendChild(removeBtn);
+    els.mateChips.appendChild(chip);
+  });
+}
+
+els.mateAddBtn.addEventListener('click', () => {
+  const id = els.mateAddSelect.value;
+  if (!id) return;
+  if (!formMates.includes(id)) formMates.push(id);
+  populateParentSelects();
+});
 
 function startEdit(id) {
   const d = state.dragons.find(x => x.id === id);
@@ -770,10 +826,10 @@ function startEdit(id) {
   els.lineage.value = d.lineage || '';
   els.generation.value = d.generation || '';
   els.gender.value = d.traits.gender || '';
+  formMates = (d.mates || []).slice();
   populateParentSelects();
   els.parent1.value = d.parent1 || '';
   els.parent2.value = d.parent2 || '';
-  els.mate.value = d.mate || '';
   if (d.parent1 || d.parent2) document.getElementById('parentFields').classList.add('open');
   els.breed.value = d.traits.breed || '';
   els.primaryColor.value = d.traits.primaryColor || '';
@@ -802,28 +858,32 @@ function deleteDragon(id) {
   state.dragons.forEach(x => {
     if (x.parent1 === id) x.parent1 = null;
     if (x.parent2 === id) x.parent2 = null;
-    if (x.mate === id) x.mate = null;
+    if (x.mates) x.mates = x.mates.filter(m => m !== id);
   });
   if (editingId === id) resetForm();
   saveState();
   renderAll();
 }
 
-function syncMateLinks(selfId, oldMateId, newMateId) {
-  if (oldMateId && oldMateId !== newMateId) {
-    const old = state.dragons.find(x => x.id === oldMateId);
-    if (old && old.mate === selfId) old.mate = null;
-  }
-  if (newMateId) {
-    const nw = state.dragons.find(x => x.id === newMateId);
-    if (nw) {
-      if (nw.mate && nw.mate !== selfId) {
-        const prevPartner = state.dragons.find(x => x.id === nw.mate);
-        if (prevPartner && prevPartner.mate === nw.id) prevPartner.mate = null;
-      }
-      nw.mate = selfId;
+// reconciles dragonId's mate list to exactly desiredMateIds, keeping every
+// link symmetric (adds the reciprocal id, removes it from anyone dropped)
+function setMateList(dragonId, desiredMateIds) {
+  const self = state.dragons.find(x => x.id === dragonId);
+  if (!self) return;
+  const desired = Array.from(new Set(desiredMateIds.filter(id => id && id !== dragonId)));
+  const current = self.mates || [];
+  current.filter(id => !desired.includes(id)).forEach(id => {
+    const other = state.dragons.find(x => x.id === id);
+    if (other && other.mates) other.mates = other.mates.filter(m => m !== dragonId);
+  });
+  desired.filter(id => !current.includes(id)).forEach(id => {
+    const other = state.dragons.find(x => x.id === id);
+    if (other) {
+      other.mates = other.mates || [];
+      if (!other.mates.includes(dragonId)) other.mates.push(dragonId);
     }
-  }
+  });
+  self.mates = desired;
 }
 
 // --- Add Mate popup: a minimal, separate flow for pairing a dragon with a
@@ -873,7 +933,7 @@ els.mateSaveBtn.addEventListener('click', () => {
     generation: effGen[anchor.id] || null,
     parent1: null,
     parent2: null,
-    mate: anchor.id,
+    mates: [],
     notes: '',
     traits: {
       breed: parsed.breed || '',
@@ -887,7 +947,7 @@ els.mateSaveBtn.addEventListener('click', () => {
     }
   };
   state.dragons.push(record);
-  syncMateLinks(newId, null, anchor.id);
+  setMateList(newId, [anchor.id]);
   saveState();
   closeMateModal();
   if (editingId === anchor.id) startEdit(anchor.id);
@@ -906,8 +966,10 @@ document.addEventListener('keydown', (e) => {
 els.saveBtn.addEventListener('click', () => {
   const nickname = els.nickname.value.trim() || 'Unnamed';
   const genVal = els.generation.value.trim();
-  const oldRecord = editingId ? state.dragons.find(x => x.id === editingId) : null;
-  const oldMateId = oldRecord ? (oldRecord.mate || null) : null;
+  // setMateList diffs against the record's existing .mates, so an edit must carry
+  // the dragon's real current list forward here - seeding [] would erase the old
+  // links from the diff and only ever let new mates get added, never removed.
+  const priorMates = editingId ? (state.dragons.find(x => x.id === editingId) || {}).mates || [] : [];
   const record = {
     id: editingId || uid(),
     nickname: nickname,
@@ -916,7 +978,7 @@ els.saveBtn.addEventListener('click', () => {
     generation: genVal ? parseInt(genVal, 10) : null,
     parent1: els.parent1.value || null,
     parent2: els.parent2.value || null,
-    mate: els.mate.value || null,
+    mates: priorMates.slice(),
     notes: els.notes.value,
     traits: {
       breed: els.breed.value.trim(),
@@ -935,7 +997,7 @@ els.saveBtn.addEventListener('click', () => {
   } else {
     state.dragons.push(record);
   }
-  syncMateLinks(record.id, oldMateId, record.mate);
+  setMateList(record.id, formMates);
   saveState();
   resetForm();
   renderAll();
@@ -970,6 +1032,10 @@ document.getElementById('importFile').addEventListener('change', (e) => {
         parsed.dragons.forEach(d => { if (d.lineage && d.lineage.trim()) seen.add(d.lineage.trim()); });
         parsed.lineages = Array.from(seen).sort((a, b) => a.localeCompare(b));
       }
+      parsed.dragons.forEach(d => {
+        if (!Array.isArray(d.mates)) d.mates = d.mate ? [d.mate] : [];
+        delete d.mate;
+      });
       state = parsed;
       currentFilter = 'ALL';
       localStorage.setItem(FILTER_KEY, currentFilter);
@@ -1090,7 +1156,9 @@ function renderTree() {
     }
   }
 
-  // nudge mates to sit next to each other within their row, when both are visible there
+  // nudge mates to cluster next to each other within their row, when visible there.
+  // walks outward from each unplaced dragon through its mate links (breadth-first),
+  // so chains of mates (A-B, B-C) end up adjacent too, not just direct pairs.
   rows = rows.map(rowIds => {
     const idSet = new Set(rowIds);
     const placed = new Set();
@@ -1099,10 +1167,15 @@ function renderTree() {
       if (placed.has(id)) return;
       out.push(id);
       placed.add(id);
-      const mateId = byId[id].mate;
-      if (mateId && idSet.has(mateId) && !placed.has(mateId)) {
+      const queue = (byId[id].mates || []).filter(m => idSet.has(m) && !placed.has(m));
+      while (queue.length) {
+        const mateId = queue.shift();
+        if (placed.has(mateId)) continue;
         out.push(mateId);
         placed.add(mateId);
+        (byId[mateId].mates || []).forEach(m => {
+          if (idSet.has(m) && !placed.has(m)) queue.push(m);
+        });
       }
     });
     return out;
@@ -1137,14 +1210,12 @@ function buildCard(d) {
   del.addEventListener('click', (e) => { e.stopPropagation(); deleteDragon(d.id); });
   card.appendChild(del);
 
-  if (!d.mate) {
-    const mateBtn = document.createElement('button');
-    mateBtn.className = 'mate-btn';
-    mateBtn.textContent = '⚭+';
-    mateBtn.title = 'Add mate';
-    mateBtn.addEventListener('click', (e) => { e.stopPropagation(); openMateModal(d.id); });
-    card.appendChild(mateBtn);
-  }
+  const mateBtn = document.createElement('button');
+  mateBtn.className = 'mate-btn';
+  mateBtn.textContent = '⚭+';
+  mateBtn.title = (d.mates && d.mates.length) ? 'Add another mate' : 'Add mate';
+  mateBtn.addEventListener('click', (e) => { e.stopPropagation(); openMateModal(d.id); });
+  card.appendChild(mateBtn);
 
   const imgwrap = document.createElement('div');
   imgwrap.className = 'imgwrap';
@@ -1184,12 +1255,15 @@ function buildCard(d) {
   });
   if (swatches.children.length) card.appendChild(swatches);
 
-  if (d.mate) {
-    const mateDragon = state.dragons.find(x => x.id === d.mate);
-    if (mateDragon) {
+  if (d.mates && d.mates.length) {
+    const mateNames = d.mates
+      .map(id => state.dragons.find(x => x.id === id))
+      .filter(Boolean)
+      .map(m => m.nickname || 'Unnamed');
+    if (mateNames.length) {
       const mateLine = document.createElement('div');
       mateLine.className = 'meta-line';
-      mateLine.textContent = '⚭ ' + (mateDragon.nickname || 'Unnamed');
+      mateLine.textContent = '⚭ ' + mateNames.join(', ');
       card.appendChild(mateLine);
     }
   }
@@ -1239,22 +1313,24 @@ function drawLines() {
 
   const drawnMatePairs = new Set();
   state.dragons.forEach(d => {
-    if (!d.mate || !centers[d.id] || !centers[d.mate]) return;
-    const pairKey = [d.id, d.mate].sort().join('|');
-    if (drawnMatePairs.has(pairKey)) return;
-    drawnMatePairs.add(pairKey);
-    let left = centers[d.id], right = centers[d.mate];
-    if (left.leftX > right.leftX) { const tmp = left; left = right; right = tmp; }
-    const midX = (left.rightX + right.leftX) / 2;
-    const path = document.createElementNS(ns, 'path');
-    const dAttr = 'M ' + left.rightX + ' ' + left.midY +
-      ' C ' + midX + ' ' + left.midY + ', ' + midX + ' ' + right.midY + ', ' + right.leftX + ' ' + right.midY;
-    path.setAttribute('d', dAttr);
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', 'var(--mate-line)');
-    path.setAttribute('stroke-width', '2');
-    path.setAttribute('stroke-dasharray', '5,4');
-    svg.appendChild(path);
+    (d.mates || []).forEach(mateId => {
+      if (!centers[d.id] || !centers[mateId]) return;
+      const pairKey = [d.id, mateId].sort().join('|');
+      if (drawnMatePairs.has(pairKey)) return;
+      drawnMatePairs.add(pairKey);
+      let left = centers[d.id], right = centers[mateId];
+      if (left.leftX > right.leftX) { const tmp = left; left = right; right = tmp; }
+      const midX = (left.rightX + right.leftX) / 2;
+      const path = document.createElementNS(ns, 'path');
+      const dAttr = 'M ' + left.rightX + ' ' + left.midY +
+        ' C ' + midX + ' ' + left.midY + ', ' + midX + ' ' + right.midY + ', ' + right.leftX + ' ' + right.midY;
+      path.setAttribute('d', dAttr);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'var(--mate-line)');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('stroke-dasharray', '5,4');
+      svg.appendChild(path);
+    });
   });
 }
 
