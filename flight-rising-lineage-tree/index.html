@@ -283,6 +283,12 @@
   .calc-slot .slot-note { font-size: 0.75rem; color: var(--text-muted); font-style: italic; }
   .calc-bar { background: var(--bg); border-radius: 4px; height: 6px; overflow: hidden; margin-top: 2px; }
   .calc-bar-fill { background: var(--accent); height: 100%; }
+  .calc-color-range { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+  .calc-color-swatch {
+    width: 18px; height: 18px; border-radius: 50%; flex: none;
+    border: 1px solid var(--border); box-sizing: border-box;
+  }
+  .calc-color-swatch.goal-hit { border: 2px solid var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .modal-actions { display: flex; gap: 8px; margin-top: 16px; }
   .modal-actions button { flex: 1; }
 
@@ -475,32 +481,39 @@
     </div>
 
     <div id="calcPredictPanel" class="calc-panel">
-      <p class="hint">Shows the full odds breakdown for breed, gender, colors and genes.</p>
+      <p class="hint">Shows the full odds breakdown for breed, colors and genes. (Gender's always 50/50, so it's left out.)</p>
     </div>
 
     <div id="calcSearchPanel" class="calc-panel" style="display:none;">
-      <p class="hint">Pick one trait to check the odds for.</p>
+      <p class="hint">Fill in any traits you're after - leave the rest blank.</p>
       <div class="calc-grid">
         <div>
-          <label for="calcSearchCategory">Trait type</label>
-          <select id="calcSearchCategory">
-            <option value="breed">Breed</option>
-            <option value="gender">Gender</option>
-            <option value="primaryColor">Primary color</option>
-            <option value="primaryGene">Primary gene</option>
-            <option value="secondaryColor">Secondary color</option>
-            <option value="secondaryGene">Secondary gene</option>
-            <option value="tertiaryColor">Tertiary color</option>
-            <option value="tertiaryGene">Tertiary gene</option>
-          </select>
+          <label for="calcGoalBreed">Breed</label>
+          <input type="text" id="calcGoalBreed" list="calcBreedOptions" placeholder="Any">
         </div>
         <div>
-          <label for="calcSearchValue">Looking for</label>
-          <input type="text" id="calcSearchValue" list="calcBreedOptions" placeholder="e.g. Coatl">
-          <select id="calcSearchGenderValue" style="display:none;">
-            <option value="Male">Male</option>
-            <option value="Female">Female</option>
-          </select>
+          <label for="calcGoalPrimaryColor">Primary color</label>
+          <input type="text" id="calcGoalPrimaryColor" list="calcColorOptions" placeholder="Any">
+        </div>
+        <div>
+          <label for="calcGoalPrimaryGene">Primary gene</label>
+          <input type="text" id="calcGoalPrimaryGene" list="calcPrimaryGeneOptions" placeholder="Any">
+        </div>
+        <div>
+          <label for="calcGoalSecondaryColor">Secondary color</label>
+          <input type="text" id="calcGoalSecondaryColor" list="calcColorOptions" placeholder="Any">
+        </div>
+        <div>
+          <label for="calcGoalSecondaryGene">Secondary gene</label>
+          <input type="text" id="calcGoalSecondaryGene" list="calcSecondaryGeneOptions" placeholder="Any">
+        </div>
+        <div>
+          <label for="calcGoalTertiaryColor">Tertiary color</label>
+          <input type="text" id="calcGoalTertiaryColor" list="calcColorOptions" placeholder="Any">
+        </div>
+        <div>
+          <label for="calcGoalTertiaryGene">Tertiary gene</label>
+          <input type="text" id="calcGoalTertiaryGene" list="calcTertiaryGeneOptions" placeholder="Any">
         </div>
       </div>
     </div>
@@ -806,9 +819,13 @@ const els = {
   calcTabSearch: document.getElementById('calcTabSearch'),
   calcPredictPanel: document.getElementById('calcPredictPanel'),
   calcSearchPanel: document.getElementById('calcSearchPanel'),
-  calcSearchCategory: document.getElementById('calcSearchCategory'),
-  calcSearchValue: document.getElementById('calcSearchValue'),
-  calcSearchGenderValue: document.getElementById('calcSearchGenderValue'),
+  calcGoalBreed: document.getElementById('calcGoalBreed'),
+  calcGoalPrimaryColor: document.getElementById('calcGoalPrimaryColor'),
+  calcGoalPrimaryGene: document.getElementById('calcGoalPrimaryGene'),
+  calcGoalSecondaryColor: document.getElementById('calcGoalSecondaryColor'),
+  calcGoalSecondaryGene: document.getElementById('calcGoalSecondaryGene'),
+  calcGoalTertiaryColor: document.getElementById('calcGoalTertiaryColor'),
+  calcGoalTertiaryGene: document.getElementById('calcGoalTertiaryGene'),
   calcRunBtn: document.getElementById('calcRunBtn'),
   calcCloseBtn: document.getElementById('calcCloseBtn'),
   calcResults: document.getElementById('calcResults'),
@@ -1167,6 +1184,23 @@ function colorInShortRange(goalCw, cwA, cwB) {
   const directIsShorter = raw <= WHEEL_SIZE - raw;
   return directIsShorter ? (goalCw >= lo && goalCw <= hi) : (goalCw <= lo || goalCw >= hi);
 }
+// The actual list of colors along the short arc between two parents, in
+// wheel order, so the calculator can show swatches instead of just a count.
+function colorsInShortRange(cwA, cwB) {
+  const byCw = {};
+  Object.values(DATA.colors).forEach(c => { byCw[c.cw] = c; });
+  const raw = Math.abs(cwA - cwB);
+  const lo = Math.min(cwA, cwB), hi = Math.max(cwA, cwB);
+  const directIsShorter = raw <= WHEEL_SIZE - raw;
+  const out = [];
+  if (directIsShorter) {
+    for (let cw = lo; cw <= hi; cw++) if (byCw[cw]) out.push(byCw[cw]);
+  } else {
+    for (let cw = hi; cw <= WHEEL_SIZE; cw++) if (byCw[cw]) out.push(byCw[cw]);
+    for (let cw = 1; cw <= lo; cw++) if (byCw[cw]) out.push(byCw[cw]);
+  }
+  return out;
+}
 
 function checkAncientMismatch(p1, p2) {
   const n1 = p1.traits.breed, n2 = p2.traits.breed;
@@ -1232,13 +1266,14 @@ function evalColorSlot(name1, name2, goalName) {
   if (!id1 || !id2) return { status: 'unrecognized' };
   const cw1 = DATA.colors[id1].cw, cw2 = DATA.colors[id2].cw;
   const size = colorRangeSize(cw1, cw2);
+  const colorsInRange = colorsInShortRange(cw1, cw2);
   let goalPct = null;
   if (goalName) {
     const goalId = findIdByName(DATA.colors, goalName);
     if (!goalId) return { status: 'goal-unrecognized' };
     goalPct = colorInShortRange(DATA.colors[goalId].cw, cw1, cw2) ? 1 / size : 0;
   }
-  return { status: 'ok', rangeSize: size, goalPct };
+  return { status: 'ok', rangeSize: size, colorsInRange, goalPct };
 }
 
 // Flight Rising won't let two dragons breed if they share a common ancestor
@@ -1327,6 +1362,18 @@ function renderSlotBlock(title, result, goalName) {
     note('Impossible: ' + result.reason);
   } else if (result.rangeSize !== undefined) {
     note(result.rangeSize + ' possible color' + (result.rangeSize === 1 ? '' : 's') + ' in range, each equally likely (~' + pctText(1 / result.rangeSize) + ')');
+    if (result.colorsInRange) {
+      const swatchRow = document.createElement('div');
+      swatchRow.className = 'calc-color-range';
+      result.colorsInRange.forEach(c => {
+        const sw = document.createElement('span');
+        sw.className = 'calc-color-swatch' + (goalName && namesEqual(goalName, c.name) ? ' goal-hit' : '');
+        sw.style.background = c.hex;
+        sw.title = c.name;
+        swatchRow.appendChild(sw);
+      });
+      block.appendChild(swatchRow);
+    }
     if (goalName) {
       const row = document.createElement('div');
       row.className = 'slot-row' + (result.goalPct > 0 ? ' goal-hit' : '');
@@ -1346,19 +1393,6 @@ function renderSlotBlock(title, result, goalName) {
       block.appendChild(bar);
     });
   }
-  return block;
-}
-
-function renderGenderBlock(goalGender) {
-  const block = document.createElement('div');
-  block.className = 'calc-slot';
-  block.innerHTML = '<div class="slot-name">Gender</div>';
-  ['Male', 'Female'].forEach(g => {
-    const row = document.createElement('div');
-    row.className = 'slot-row' + (goalGender === g ? ' goal-hit' : '');
-    row.innerHTML = '<span>' + g + '</span><span>50.0%</span>';
-    block.appendChild(row);
-  });
   return block;
 }
 
@@ -1407,34 +1441,6 @@ function refreshParentEligibility() {
   els.calcEligibility.textContent = reasons.length ? ('⚠ ' + reasons.join(' ')) : '';
 }
 
-const CALC_SEARCH_DATALIST = {
-  breed: 'calcBreedOptions',
-  primaryColor: 'calcColorOptions',
-  secondaryColor: 'calcColorOptions',
-  tertiaryColor: 'calcColorOptions',
-  primaryGene: 'calcPrimaryGeneOptions',
-  secondaryGene: 'calcSecondaryGeneOptions',
-  tertiaryGene: 'calcTertiaryGeneOptions',
-};
-const CALC_SEARCH_PLACEHOLDER = {
-  breed: 'e.g. Coatl',
-  primaryColor: 'e.g. Maize', secondaryColor: 'e.g. Maize', tertiaryColor: 'e.g. Maize',
-  primaryGene: 'e.g. Basic', secondaryGene: 'e.g. Basic', tertiaryGene: 'e.g. Basic',
-};
-function updateSearchCategoryUI() {
-  const category = els.calcSearchCategory.value;
-  if (category === 'gender') {
-    els.calcSearchValue.style.display = 'none';
-    els.calcSearchGenderValue.style.display = '';
-  } else {
-    els.calcSearchValue.style.display = '';
-    els.calcSearchGenderValue.style.display = 'none';
-    els.calcSearchValue.setAttribute('list', CALC_SEARCH_DATALIST[category]);
-    els.calcSearchValue.value = '';
-    els.calcSearchValue.placeholder = CALC_SEARCH_PLACEHOLDER[category];
-  }
-}
-
 let calcActiveTab = 'predict';
 function setCalcTab(tab) {
   calcActiveTab = tab;
@@ -1445,14 +1451,19 @@ function setCalcTab(tab) {
   els.calcResults.innerHTML = '';
 }
 
+function clearCalcGoals() {
+  [els.calcGoalBreed, els.calcGoalPrimaryColor, els.calcGoalPrimaryGene,
+   els.calcGoalSecondaryColor, els.calcGoalSecondaryGene,
+   els.calcGoalTertiaryColor, els.calcGoalTertiaryGene].forEach(el => { el.value = ''; });
+}
+
 function openCalcModal(parent1Id, parent2Id) {
   populateCalcDatalists();
   populateCalcParentSelects();
   els.calcParent1.value = parent1Id || '';
   els.calcParent2.value = parent2Id || '';
   refreshParentEligibility();
-  els.calcSearchCategory.value = 'breed';
-  updateSearchCategoryUI();
+  clearCalcGoals();
   setCalcTab('predict');
   els.calcModalOverlay.classList.add('show');
 }
@@ -1482,7 +1493,6 @@ function runPredict() {
   const container = document.createElement('div');
 
   container.appendChild(renderSlotBlock('Breed', evalBreedSlot(p1, p2, ''), ''));
-  container.appendChild(renderGenderBlock(''));
   container.appendChild(renderSlotBlock('Primary Color', evalColorSlot(p1.traits.primaryColor, p2.traits.primaryColor, ''), ''));
   container.appendChild(renderSlotBlock('Primary Gene', evalGeneSlot('primaryGenes', p1.traits.primaryGene, p2.traits.primaryGene, ''), ''));
   container.appendChild(renderSlotBlock('Secondary Color', evalColorSlot(p1.traits.secondaryColor, p2.traits.secondaryColor, ''), ''));
@@ -1493,53 +1503,52 @@ function runPredict() {
   out.appendChild(container);
 }
 
-const CALC_SEARCH_SLOT = {
-  breed:          { label: 'Breed', eval: (p1, p2, goal) => evalBreedSlot(p1, p2, goal) },
-  primaryColor:   { label: 'Primary Color', eval: (p1, p2, goal) => evalColorSlot(p1.traits.primaryColor, p2.traits.primaryColor, goal) },
-  primaryGene:    { label: 'Primary Gene', eval: (p1, p2, goal) => evalGeneSlot('primaryGenes', p1.traits.primaryGene, p2.traits.primaryGene, goal) },
-  secondaryColor: { label: 'Secondary Color', eval: (p1, p2, goal) => evalColorSlot(p1.traits.secondaryColor, p2.traits.secondaryColor, goal) },
-  secondaryGene:  { label: 'Secondary Gene', eval: (p1, p2, goal) => evalGeneSlot('secondaryGenes', p1.traits.secondaryGene, p2.traits.secondaryGene, goal) },
-  tertiaryColor:  { label: 'Tertiary Color', eval: (p1, p2, goal) => evalColorSlot(p1.traits.tertiaryColor, p2.traits.tertiaryColor, goal) },
-  tertiaryGene:   { label: 'Tertiary Gene', eval: (p1, p2, goal) => evalGeneSlot('tertiaryGenes', p1.traits.tertiaryGene, p2.traits.tertiaryGene, goal) },
-};
-
 function runSearch() {
   const parents = getCalcParents();
   if (!parents) return;
   const { p1, p2, out } = parents;
-  const category = els.calcSearchCategory.value;
-  const goalValue = category === 'gender' ? els.calcSearchGenderValue.value : els.calcSearchValue.value.trim();
-  if (!goalValue) {
-    out.innerHTML = '<p class="hint" style="margin-top:14px;">Pick what you’re looking for first.</p>';
+
+  const fields = [
+    { label: 'Breed', el: els.calcGoalBreed, eval: (goal) => evalBreedSlot(p1, p2, goal) },
+    { label: 'Primary Color', el: els.calcGoalPrimaryColor, eval: (goal) => evalColorSlot(p1.traits.primaryColor, p2.traits.primaryColor, goal) },
+    { label: 'Primary Gene', el: els.calcGoalPrimaryGene, eval: (goal) => evalGeneSlot('primaryGenes', p1.traits.primaryGene, p2.traits.primaryGene, goal) },
+    { label: 'Secondary Color', el: els.calcGoalSecondaryColor, eval: (goal) => evalColorSlot(p1.traits.secondaryColor, p2.traits.secondaryColor, goal) },
+    { label: 'Secondary Gene', el: els.calcGoalSecondaryGene, eval: (goal) => evalGeneSlot('secondaryGenes', p1.traits.secondaryGene, p2.traits.secondaryGene, goal) },
+    { label: 'Tertiary Color', el: els.calcGoalTertiaryColor, eval: (goal) => evalColorSlot(p1.traits.tertiaryColor, p2.traits.tertiaryColor, goal) },
+    { label: 'Tertiary Gene', el: els.calcGoalTertiaryGene, eval: (goal) => evalGeneSlot('tertiaryGenes', p1.traits.tertiaryGene, p2.traits.tertiaryGene, goal) },
+  ];
+
+  const active = fields
+    .map(f => ({ label: f.label, goal: f.el.value.trim(), eval: f.eval }))
+    .filter(f => f.goal)
+    .map(f => ({ label: f.label, goal: f.goal, result: f.eval(f.goal) }));
+
+  if (!active.length) {
+    out.innerHTML = '<p class="hint" style="margin-top:14px;">Enter at least one trait you’re looking for.</p>';
     return;
   }
 
   const container = document.createElement('div');
-  let goalPct, block;
-  if (category === 'gender') {
-    goalPct = 0.5;
-    block = renderGenderBlock(goalValue);
+  const contributions = active.map(f => f.result.goalPct);
+  const anyUnknown = contributions.some(c => c === null || c === undefined);
+  const totalBlock = document.createElement('div');
+  totalBlock.className = 'calc-total';
+  if (anyUnknown) {
+    totalBlock.innerHTML = '<span class="label">Total probability</span>Can’t calculate for every trait — see notes below';
   } else {
-    const slot = CALC_SEARCH_SLOT[category];
-    const result = slot.eval(p1, p2, goalValue);
-    goalPct = result.goalPct;
-    block = renderSlotBlock(slot.label, result, goalValue);
+    const total = contributions.reduce((a, b) => a * b, 1);
+    totalBlock.innerHTML = '<span class="label">Total probability of this exact combo</span>' + pctText(total);
   }
+  container.appendChild(totalBlock);
 
-  if (typeof goalPct === 'number') {
-    const totalBlock = document.createElement('div');
-    totalBlock.className = 'calc-total';
-    totalBlock.innerHTML = '<span class="label">Chance of ' + escapeHtml(goalValue) + '</span>' + pctText(goalPct);
-    container.appendChild(totalBlock);
-  }
-  container.appendChild(block);
+  active.forEach(f => container.appendChild(renderSlotBlock(f.label, f.result, f.goal)));
+
   out.appendChild(container);
 }
 
 els.breedingCalcBtn.addEventListener('click', () => openCalcModal());
 els.calcParent1.addEventListener('change', refreshParentEligibility);
 els.calcParent2.addEventListener('change', refreshParentEligibility);
-els.calcSearchCategory.addEventListener('change', updateSearchCategoryUI);
 els.calcTabPredict.addEventListener('click', () => setCalcTab('predict'));
 els.calcTabSearch.addEventListener('click', () => setCalcTab('search'));
 els.calcRunBtn.addEventListener('click', () => { calcActiveTab === 'predict' ? runPredict() : runSearch(); });
