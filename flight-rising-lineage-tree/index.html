@@ -209,6 +209,11 @@
   .dcard .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.15); }
   .dcard .gender-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
   .dcard .meta-line { font-size: 0.7rem; color: var(--text-muted); }
+  .dcard .lineage-tag {
+    display: inline-block; background: rgba(138,90,60,0.12); color: var(--accent);
+    border-radius: 4px; padding: 1px 5px; margin-bottom: 4px; font-weight: 600;
+  }
+  .dcard .unknown-gen { font-style: italic; margin-bottom: 2px; }
   .dcard .del-btn {
     position: absolute; top: 4px; right: 4px;
     background: transparent; border: none; color: var(--text-muted);
@@ -297,6 +302,10 @@
       <div>
         <label for="generation">Generation</label>
         <input type="number" id="generation" placeholder="auto">
+        <label style="display:flex; align-items:center; gap:4px; font-size:0.72rem; color:var(--text-muted); margin-top:4px; font-weight:400;">
+          <input type="checkbox" id="generationUnknown" style="width:auto;">
+          Unknown (e.g. from the AH)
+        </label>
       </div>
       <div>
         <label for="gender">Gender</label>
@@ -638,6 +647,7 @@ const els = {
   renameLineageBtn: document.getElementById('renameLineageBtn'),
   deleteLineageBtn: document.getElementById('deleteLineageBtn'),
   generation: document.getElementById('generation'),
+  generationUnknown: document.getElementById('generationUnknown'),
   gender: document.getElementById('gender'),
   parent1: document.getElementById('parent1'),
   parent2: document.getElementById('parent2'),
@@ -736,6 +746,8 @@ function resetForm() {
   els.nickname.value = '';
   syncFormLineageDefault();
   els.generation.value = '';
+  els.generation.disabled = false;
+  els.generationUnknown.checked = false;
   els.gender.value = '';
   els.parent1.value = '';
   els.parent2.value = '';
@@ -824,7 +836,15 @@ function startEdit(id) {
   els.scryUrl.value = d.scryUrl || '';
   els.nickname.value = d.nickname || '';
   els.lineage.value = d.lineage || '';
-  els.generation.value = d.generation || '';
+  if (d.generation === 'NONE') {
+    els.generation.value = '';
+    els.generation.disabled = true;
+    els.generationUnknown.checked = true;
+  } else {
+    els.generation.value = (typeof d.generation === 'number') ? d.generation : '';
+    els.generation.disabled = false;
+    els.generationUnknown.checked = false;
+  }
   els.gender.value = d.traits.gender || '';
   formMates = (d.mates || []).slice();
   populateParentSelects();
@@ -963,9 +983,15 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && els.mateModalOverlay.classList.contains('show')) closeMateModal();
 });
 
+els.generationUnknown.addEventListener('change', () => {
+  els.generation.disabled = els.generationUnknown.checked;
+  if (els.generationUnknown.checked) els.generation.value = '';
+});
+
 els.saveBtn.addEventListener('click', () => {
   const nickname = els.nickname.value.trim() || 'Unnamed';
   const genVal = els.generation.value.trim();
+  const generation = els.generationUnknown.checked ? 'NONE' : (genVal ? parseInt(genVal, 10) : null);
   // setMateList diffs against the record's existing .mates, so an edit must carry
   // the dragon's real current list forward here - seeding [] would erase the old
   // links from the diff and only ever let new mates get added, never removed.
@@ -975,7 +1001,7 @@ els.saveBtn.addEventListener('click', () => {
     nickname: nickname,
     lineage: els.lineage.value.trim(),
     scryUrl: els.scryUrl.value.trim(),
-    generation: genVal ? parseInt(genVal, 10) : null,
+    generation: generation,
     parent1: els.parent1.value || null,
     parent2: els.parent2.value || null,
     mates: priorMates.slice(),
@@ -1064,6 +1090,7 @@ function renderList() {
     return;
   }
   const effGen = computeGenerations();
+  const certain = computeGenerationCertainty();
   visible
     .slice()
     .sort((a, b) => effGen[a.id] - effGen[b.id] || a.nickname.localeCompare(b.nickname))
@@ -1071,10 +1098,11 @@ function renderList() {
       const row = document.createElement('div');
       row.className = 'dragon-list-item';
       const lineageTag = currentFilter === 'ALL' ? ' &middot; ' + escapeHtml(dragonLineage(d)) : '';
+      const genLabel = certain[d.id] ? ('G' + effGen[d.id]) : 'Unknown';
       row.innerHTML =
         '<img src="' + (d.scryUrl || '') + '" onerror="this.style.visibility=\'hidden\'">' +
         '<span class="name">' + escapeHtml(d.nickname) + '<span style="color:var(--text-muted); font-weight:400;">' + lineageTag + '</span></span>' +
-        '<span class="gen-badge">G' + effGen[d.id] + (d.generation ? '' : ' (auto)') + '</span>';
+        '<span class="gen-badge">' + genLabel + '</span>';
       row.addEventListener('click', () => startEdit(d.id));
       els.dragonList.appendChild(row);
     });
@@ -1088,33 +1116,72 @@ function escapeHtml(s) {
 
 // --- Tree layout & rendering ---
 
+// Generation is a fixed-point relaxation, not a one-shot lookup: a dragon must sit
+// strictly below its parents, AND every mate pair must land on the very same row -
+// even across lineages, and even when one side's generation is a total unknown -
+// so cross-lineage pairings and auction-house mates still render side by side.
+// Explicit numbers (and defaults) only ever get raised, never lowered, by either rule.
 function computeGenerations() {
   const byId = {};
   state.dragons.forEach(d => byId[d.id] = d);
   const effGen = {};
+  state.dragons.forEach(d => { effGen[d.id] = (typeof d.generation === 'number') ? d.generation : 1; });
+
   let changed = true;
   let guard = 0;
-  state.dragons.forEach(d => { effGen[d.id] = d.generation || null; });
-  while (changed && guard < state.dragons.length + 2) {
+  const n = state.dragons.length;
+  while (changed && guard < n * 4 + 20) {
     changed = false;
     guard++;
     state.dragons.forEach(d => {
-      if (effGen[d.id]) return;
-      const p1 = d.parent1 ? effGen[d.parent1] : null;
-      const p2 = d.parent2 ? effGen[d.parent2] : null;
-      if (d.parent1 || d.parent2) {
-        if (p1 || p2) {
-          effGen[d.id] = Math.max(p1 || 0, p2 || 0) + 1;
-          changed = true;
-        }
-      } else {
-        effGen[d.id] = 1;
+      let need = effGen[d.id];
+      if (d.parent1 && byId[d.parent1]) need = Math.max(need, effGen[d.parent1] + 1);
+      if (d.parent2 && byId[d.parent2]) need = Math.max(need, effGen[d.parent2] + 1);
+      if (need > effGen[d.id]) { effGen[d.id] = need; changed = true; }
+    });
+    state.dragons.forEach(d => {
+      (d.mates || []).forEach(mateId => {
+        if (!byId[mateId]) return;
+        const shared = Math.max(effGen[d.id], effGen[mateId]);
+        if (effGen[d.id] !== shared) { effGen[d.id] = shared; changed = true; }
+        if (effGen[mateId] !== shared) { effGen[mateId] = shared; changed = true; }
+      });
+    });
+  }
+  return effGen;
+}
+
+// A dragon's row is "certain" only if it traces back to an explicit generation
+// number somewhere - its own, an ancestor's, or a mate's (transitively). Anything
+// that only ever hit the row-1 default is flagged so the tree can say "Unknown"
+// instead of quietly implying it's a confirmed founder.
+function computeGenerationCertainty() {
+  const byId = {};
+  state.dragons.forEach(d => byId[d.id] = d);
+  const certain = {};
+  state.dragons.forEach(d => { certain[d.id] = typeof d.generation === 'number'; });
+
+  let changed = true;
+  let guard = 0;
+  const n = state.dragons.length;
+  while (changed && guard < n * 4 + 20) {
+    changed = false;
+    guard++;
+    state.dragons.forEach(d => {
+      if (certain[d.id]) return;
+      if ((d.parent1 && certain[d.parent1]) || (d.parent2 && certain[d.parent2])) {
+        certain[d.id] = true;
         changed = true;
       }
     });
+    state.dragons.forEach(d => {
+      if (!certain[d.id]) return;
+      (d.mates || []).forEach(mateId => {
+        if (byId[mateId] && !certain[mateId]) { certain[mateId] = true; changed = true; }
+      });
+    });
   }
-  state.dragons.forEach(d => { if (!effGen[d.id]) effGen[d.id] = 1; });
-  return effGen;
+  return certain;
 }
 
 function renderTree() {
@@ -1181,16 +1248,19 @@ function renderTree() {
     return out;
   });
 
+  const certain = computeGenerationCertainty();
+  const showLineageTag = currentFilter === 'ALL';
+
   rows.forEach((rowIds, i) => {
     const rowEl = document.createElement('div');
     rowEl.className = 'gen-row';
     const label = document.createElement('div');
     label.className = 'gen-label';
-    label.textContent = 'Gen ' + genNums[i];
+    label.textContent = rowIds.every(id => !certain[id]) ? 'Unknown Gen' : 'Gen ' + genNums[i];
     rowEl.appendChild(label);
     rowIds.forEach(id => {
       const d = byId[id];
-      rowEl.appendChild(buildCard(d));
+      rowEl.appendChild(buildCard(d, certain[id], showLineageTag));
     });
     canvas.appendChild(rowEl);
   });
@@ -1198,7 +1268,7 @@ function renderTree() {
   requestAnimationFrame(drawLines);
 }
 
-function buildCard(d) {
+function buildCard(d, isGenCertain, showLineageTag) {
   const card = document.createElement('div');
   card.className = 'dcard';
   card.dataset.id = d.id;
@@ -1240,6 +1310,20 @@ function buildCard(d) {
     breed.className = 'breed';
     breed.textContent = d.traits.breed;
     card.appendChild(breed);
+  }
+
+  if (showLineageTag && d.lineage) {
+    const tag = document.createElement('div');
+    tag.className = 'meta-line lineage-tag';
+    tag.textContent = d.lineage;
+    card.appendChild(tag);
+  }
+
+  if (!isGenCertain) {
+    const unknown = document.createElement('div');
+    unknown.className = 'meta-line unknown-gen';
+    unknown.textContent = 'Generation unknown';
+    card.appendChild(unknown);
   }
 
   const swatches = document.createElement('div');
