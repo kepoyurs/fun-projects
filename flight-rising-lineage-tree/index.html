@@ -192,6 +192,9 @@
   }
   .dcard:hover { border-color: var(--accent); transform: translateY(-1px); }
   .dcard.positioned { position: absolute; }
+  .dcard.draggable { cursor: grab; touch-action: none; }
+  .dcard.draggable:active { cursor: grabbing; }
+  .dcard.dragging { cursor: grabbing; z-index: 10; transition: none; box-shadow: 0 4px 14px rgba(0,0,0,0.25); }
   .dcard .imgwrap {
     width: 100%;
     height: 90px;
@@ -277,6 +280,7 @@
   <button class="secondary" id="newLineageBtn" title="Create a new lineage">+ New lineage</button>
   <button class="secondary" id="renameLineageBtn" title="Rename this lineage">Rename</button>
   <button class="secondary" id="deleteLineageBtn" title="Delete this lineage">Delete</button>
+  <button class="secondary" id="resetLayoutBtn" title="Let the layout re-arrange every card automatically">Reset layout</button>
   <button class="secondary" id="exportBtn">Export JSON</button>
   <button class="secondary" id="importBtn">Import JSON</button>
   <input type="file" id="importFile" accept="application/json">
@@ -436,6 +440,7 @@ function loadState() {
     }
     delete d.mate;
   });
+  if (!parsed.forceViewOrigin) parsed.forceViewOrigin = { x: 450, y: 450 };
   return parsed;
 }
 
@@ -504,6 +509,7 @@ function updateLineageManageButtons() {
   const canManage = currentFilter !== 'ALL' && currentFilter !== UNASSIGNED;
   els.renameLineageBtn.style.display = canManage ? '' : 'none';
   els.deleteLineageBtn.style.display = canManage ? '' : 'none';
+  els.resetLayoutBtn.style.display = currentFilter === 'ALL' ? '' : 'none';
 }
 
 // keeps the Add-dragon form's lineage default matched to whichever lineage is
@@ -648,6 +654,7 @@ const els = {
   newLineageBtn: document.getElementById('newLineageBtn'),
   renameLineageBtn: document.getElementById('renameLineageBtn'),
   deleteLineageBtn: document.getElementById('deleteLineageBtn'),
+  resetLayoutBtn: document.getElementById('resetLayoutBtn'),
   generation: document.getElementById('generation'),
   generationUnknown: document.getElementById('generationUnknown'),
   gender: document.getElementById('gender'),
@@ -739,6 +746,15 @@ els.deleteLineageBtn.addEventListener('click', () => {
   syncFormLineageDefault();
   populateParentSelects();
   renderList();
+  renderTree();
+});
+
+els.resetLayoutBtn.addEventListener('click', () => {
+  if (!confirm('Clear your manual card positions and let the layout re-arrange everything automatically?')) return;
+  state.dragons.forEach(d => { d.pos = null; });
+  forceViewOrigin = { x: 450, y: 450 };
+  state.forceViewOrigin = forceViewOrigin;
+  saveState();
   renderTree();
 });
 
@@ -997,7 +1013,8 @@ els.saveBtn.addEventListener('click', () => {
   // setMateList diffs against the record's existing .mates, so an edit must carry
   // the dragon's real current list forward here - seeding [] would erase the old
   // links from the diff and only ever let new mates get added, never removed.
-  const priorMates = editingId ? (state.dragons.find(x => x.id === editingId) || {}).mates || [] : [];
+  const priorRecord = editingId ? state.dragons.find(x => x.id === editingId) : null;
+  const priorMates = priorRecord ? priorRecord.mates || [] : [];
   const record = {
     id: editingId || uid(),
     nickname: nickname,
@@ -1007,6 +1024,7 @@ els.saveBtn.addEventListener('click', () => {
     parent1: els.parent1.value || null,
     parent2: els.parent2.value || null,
     mates: priorMates.slice(),
+    pos: priorRecord ? priorRecord.pos || null : null,
     notes: els.notes.value,
     traits: {
       breed: els.breed.value.trim(),
@@ -1064,7 +1082,9 @@ document.getElementById('importFile').addEventListener('change', (e) => {
         if (!Array.isArray(d.mates)) d.mates = d.mate ? [d.mate] : [];
         delete d.mate;
       });
+      if (!parsed.forceViewOrigin) parsed.forceViewOrigin = { x: 450, y: 450 };
       state = parsed;
+      forceViewOrigin = state.forceViewOrigin;
       currentFilter = 'ALL';
       localStorage.setItem(FILTER_KEY, currentFilter);
       saveState();
@@ -1285,12 +1305,20 @@ function computeForceLayout(dragonIds, byId, effGen) {
   const genSpan = Math.max(maxGen - minGen, 1);
 
   dragonIds.forEach((id, i) => {
+    // a dragon the user has dragged to a spot keeps that spot every render -
+    // it's pinned, so the simulation treats it as fixed and arranges
+    // everything else around it instead of overriding the manual placement
+    const pinnedPos = byId[id].pos;
+    if (pinnedPos) {
+      nodes[id] = { x: pinnedPos.x, y: pinnedPos.y, vx: 0, vy: 0, pinned: true };
+      return;
+    }
     const angle = (i / Math.max(dragonIds.length, 1)) * Math.PI * 2;
     const radius = 60 + (i % 6) * 45;
     nodes[id] = {
       x: Math.cos(angle) * radius + (Math.random() - 0.5) * 20,
       y: ((effGen[id] - minGen) / genSpan) * 480 + (Math.random() - 0.5) * 30,
-      vx: 0, vy: 0,
+      vx: 0, vy: 0, pinned: false,
     };
   });
 
@@ -1344,6 +1372,7 @@ function computeForceLayout(dragonIds, byId, effGen) {
     });
     dragonIds.forEach(id => {
       const n = nodes[id];
+      if (n.pinned) { n.vx = 0; n.vy = 0; return; }
       n.vx += -n.x * CENTER_PULL;
       n.vy += -n.y * CENTER_PULL;
       n.vx *= DAMPING; n.vy *= DAMPING;
@@ -1359,22 +1388,25 @@ function computeForceLayout(dragonIds, byId, effGen) {
     for (let i = 0; i < dragonIds.length; i++) {
       for (let j = i + 1; j < dragonIds.length; j++) {
         const a = nodes[dragonIds[i]], b = nodes[dragonIds[j]];
+        if (a.pinned && b.pinned) continue;
         let dx = b.x - a.x, dy = b.y - a.y;
         if (dx === 0 && dy === 0) { dx = 0.5; dy = 0.5; }
         const overlapX = CARD_W - Math.abs(dx);
         const overlapY = CARD_H - Math.abs(dy);
         if (overlapX > 0 && overlapY > 0) {
           moved = true;
+          // a pinned card never moves to resolve an overlap - the other one
+          // absorbs the full push instead of splitting it
           if (overlapX < overlapY) {
-            const push = overlapX / 2 + 2;
             const dir = dx < 0 ? -1 : 1;
-            a.x -= dir * push;
-            b.x += dir * push;
+            if (a.pinned) { b.x += dir * (overlapX + 2); }
+            else if (b.pinned) { a.x -= dir * (overlapX + 2); }
+            else { const push = overlapX / 2 + 2; a.x -= dir * push; b.x += dir * push; }
           } else {
-            const push = overlapY / 2 + 2;
             const dir = dy < 0 ? -1 : 1;
-            a.y -= dir * push;
-            b.y += dir * push;
+            if (a.pinned) { b.y += dir * (overlapY + 2); }
+            else if (b.pinned) { a.y -= dir * (overlapY + 2); }
+            else { const push = overlapY / 2 + 2; a.y -= dir * push; b.y += dir * push; }
           }
         }
       }
@@ -1384,6 +1416,15 @@ function computeForceLayout(dragonIds, byId, effGen) {
 
   return nodes;
 }
+
+// The pixel<->simulation-space origin. It only ever grows, never shrinks -
+// if it were recomputed fresh from the current bounding box every render (as
+// it originally was), a pinned dragon's *simulation* coordinate would stay
+// exactly where it was dragged, but its *pixel* position would still drift
+// every time unrelated content elsewhere changed that box. Growing-only
+// keeps every already-placed card visually stable; resetLayoutBtn snaps it
+// back to the default so a cleared layout isn't stuck with a huge canvas.
+let forceViewOrigin = state.forceViewOrigin;
 
 function renderForceGraph(canvas, visible, byId, effGen, certain) {
   const ids = visible.map(d => d.id);
@@ -1399,9 +1440,13 @@ function renderForceGraph(canvas, visible, byId, effGen, certain) {
     maxY = Math.max(maxY, p.y + CARD_H / 2);
   });
   const pad = 60;
-  const offsetX = pad - minX, offsetY = pad - minY;
-  canvas.style.width = ((maxX - minX) + pad * 2) + 'px';
-  canvas.style.height = ((maxY - minY) + pad * 2) + 'px';
+  const grewX = pad - minX > forceViewOrigin.x, grewY = pad - minY > forceViewOrigin.y;
+  forceViewOrigin.x = Math.max(forceViewOrigin.x, pad - minX);
+  forceViewOrigin.y = Math.max(forceViewOrigin.y, pad - minY);
+  if (grewX || grewY) { state.forceViewOrigin = forceViewOrigin; saveState(); }
+  const offsetX = forceViewOrigin.x, offsetY = forceViewOrigin.y;
+  canvas.style.width = (maxX + offsetX + pad) + 'px';
+  canvas.style.height = (maxY + offsetY + pad) + 'px';
 
   ids.forEach(id => {
     const d = byId[id];
@@ -1411,6 +1456,58 @@ function renderForceGraph(canvas, visible, byId, effGen, certain) {
     card.style.left = (p.x + offsetX - CARD_W / 2) + 'px';
     card.style.top = (p.y + offsetY - CARD_H / 2) + 'px';
     canvas.appendChild(card);
+    makeCardDraggable(card, d, offsetX, offsetY, CARD_W, CARD_H);
+  });
+}
+
+let suppressNextClick = false;
+let linesRedrawScheduled = false;
+function scheduleLinesRedraw(forceMode) {
+  if (linesRedrawScheduled) return;
+  linesRedrawScheduled = true;
+  requestAnimationFrame(() => { linesRedrawScheduled = false; drawLines(forceMode); });
+}
+
+// Drag-to-reposition for the unified graph view. A dragon the user moves is
+// "pinned" (see computeForceLayout) - it keeps that exact spot on every
+// future render instead of being reshuffled by the simulation, while
+// everything still connected to it keeps arranging itself around it.
+function makeCardDraggable(card, d, offsetX, offsetY, CARD_W, CARD_H) {
+  card.classList.add('draggable');
+  card.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    const startPX = e.clientX, startPY = e.clientY;
+    const startLeft = parseFloat(card.style.left), startTop = parseFloat(card.style.top);
+    let dragging = false;
+    card.setPointerCapture(e.pointerId);
+
+    const onMove = (e2) => {
+      const dx = e2.clientX - startPX, dy = e2.clientY - startPY;
+      if (!dragging && Math.hypot(dx, dy) > 4) {
+        dragging = true;
+        card.classList.add('dragging');
+      }
+      if (!dragging) return;
+      card.style.left = (startLeft + dx) + 'px';
+      card.style.top = (startTop + dy) + 'px';
+      scheduleLinesRedraw(true);
+    };
+    const onUp = () => {
+      card.removeEventListener('pointermove', onMove);
+      card.removeEventListener('pointerup', onUp);
+      card.classList.remove('dragging');
+      if (!dragging) return;
+      suppressNextClick = true;
+      const finalLeft = parseFloat(card.style.left), finalTop = parseFloat(card.style.top);
+      d.pos = {
+        x: finalLeft - offsetX + CARD_W / 2,
+        y: finalTop - offsetY + CARD_H / 2,
+      };
+      saveState();
+      scheduleLinesRedraw(true);
+    };
+    card.addEventListener('pointermove', onMove);
+    card.addEventListener('pointerup', onUp);
   });
 }
 
@@ -1532,7 +1629,10 @@ function buildCard(d, isGenCertain, showLineageTag) {
     }
   }
 
-  card.addEventListener('click', () => startEdit(d.id));
+  card.addEventListener('click', () => {
+    if (suppressNextClick) { suppressNextClick = false; return; }
+    startEdit(d.id);
+  });
   return card;
 }
 
