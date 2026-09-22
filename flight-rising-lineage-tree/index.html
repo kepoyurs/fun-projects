@@ -223,6 +223,8 @@
   <h1>Flight Rising Lineage Tracker</h1>
   <p>Paste Scrying Workshop links, link parents to children, watch the tree grow.</p>
   <div class="spacer"></div>
+  <label for="lineageFilter" style="margin:0; font-size:0.8rem; color:var(--text-muted);">Showing:</label>
+  <select id="lineageFilter" style="width:auto; max-width:220px;"></select>
   <button class="secondary" id="exportBtn">Export JSON</button>
   <button class="secondary" id="importBtn">Import JSON</button>
   <input type="file" id="importFile" accept="application/json">
@@ -241,6 +243,11 @@
 
     <label for="nickname">Nickname</label>
     <input type="text" id="nickname" placeholder="e.g. Founder Mare">
+
+    <label for="lineage">Lineage / challenge name</label>
+    <input type="text" id="lineage" list="lineageOptions" placeholder="e.g. Copper Lineage Challenge">
+    <datalist id="lineageOptions"></datalist>
+    <p class="hint">Dragons with the same lineage name group into one tree. Leave blank for "Unassigned".</p>
 
     <div class="row2">
       <div>
@@ -307,6 +314,8 @@
 const DATA = {"colors":{"1":{"name":"Maize","hex":"#FFFDEA","cw":1.0},"163":{"name":"Cream","hex":"#FFEFDC","cw":2.0},"97":{"name":"Antique","hex":"#D8D6CD","cw":3.0},"2":{"name":"White","hex":"#FFFFFF","cw":4.0},"74":{"name":"Moon","hex":"#D8D7D8","cw":5.0},"3":{"name":"Ice","hex":"#F1F3FF","cw":6.0},"131":{"name":"Orca","hex":"#E1DFFF","cw":7.0},"4":{"name":"Platinum","hex":"#C8BECE","cw":8.0},"5":{"name":"Silver","hex":"#BBBABF","cw":9.0},"146":{"name":"Dust","hex":"#9D9D9F","cw":10.0},"6":{"name":"Grey","hex":"#808080","cw":11.0},"91":{"name":"Smoke","hex":"#9494A9","cw":12.0},"98":{"name":"Gloom","hex":"#545365","cw":13.0},"118":{"name":"Lead","hex":"#413C40","cw":14.0},"177":{"name":"Shale","hex":"#4D484F","cw":15.0},"129":{"name":"Flint","hex":"#636268","cw":16.0},"7":{"name":"Charcoal","hex":"#555555","cw":17.0},"8":{"name":"Coal","hex":"#4B4946","cw":18.0},"70":{"name":"Oilslick","hex":"#352C27","cw":19.0},"9":{"name":"Black","hex":"#333333","cw":20.0},"10":{"name":"Obsidian","hex":"#1D2224","cw":21.0},"176":{"name":"Eldritch","hex":"#252A24","cw":22.0},"11":{"name":"Midnight","hex":"#392D43","cw":23.0},"12":{"name":"Shadow","hex":"#292B38","cw":24.0},"127":{"name":"Blackberry","hex":"#4C2A4F","cw":25.0},"13":{"name":"Mulberry","hex":"#6E235D","cw":26.0},"92":{"name":"Plum","hex":"#863290","cw":27.0},"119":{"name":"Wisteria","hex":"#724D79","cw":28.0},"14":{"name":"Thistle","hex":"#8F7C8B","cw":29.0},"137":{"name":"Fog","hex":"#A794B2","cw":30.0},"150":{"name":"Mist","hex":"#E1CDFE","cw":31.0},"15":{"name":"Lavender","hex":"#CCA4E0","cw":32.0},"68":{"name":"Heather","hex":"#9778BE","cw":33.0},"16":{"name":"Purple","hex":"#A261CF","cw":34.0},"69":{"name":"Orchid","hex":"#DA4FFF","cw":35.0},"114":{"name":"Amethyst","hex":"#993BD1","cw":36.0},"175":{"name":"Nightshade","hex":"#7930B5","cw":37.0},"17":{"name":"Violet","hex":"#643F9C","cw":38.0},"147":{"name":"Grape","hex":"#580FC0","cw":39.0},"18":{"name":"Royal","hex":"#4D2C89","cw":40.0},"111":{"name":"Eggplant","hex":"#3F2B66","cw":41.0},"82":{"name":"Iris","hex":"#525195","cw":42.0},"19":{"name":"Storm","hex":"#757ADB","cw":43.0},"174":{"name":"Twilight","hex":"#484AA1","cw":44.0},"112":{"name":"Indigo","hex":"#2D237A","cw":45.0},"71":{"name":"Sapphire","hex":"#0D0A5B","cw":46.0},"20":{"name":"Navy","hex":"#212B5F","cw":47.0},"136":{"name":"Cobalt","hex":"#013485","cw":48.0},"90":{"name":"Ultramarine","hex":"#1C51E7","cw":49.0},"21":{"name":"Blue","hex":"#324BA9","cw":50.0},"135":{"name":"Periwinkle","hex":"#4866D5","cw":51.0},"148":{"name":"Lapis","hex":"#2F83FF","cw":52.0},"22":{"name":"Splash","hex":"#6394DD","cw":53.0},"145":{"name":"Cornflower","hex":"#76A8FF","cw":54.0},"23":{"name":"Sky","hex":"#AEC8FF","cw":55.0},"24":{"name":"Stonewash","hex":"#7895C1","cw":56.0},"126":{"name":"Overcast","hex":"#444F69","cw":57.0},"25":{"name":"Steel","hex":"#556979","cw":58.0},"26":{"name":"Denim","hex":"#2F4557","cw":59.0},"96":{"name":"Abyss","hex":"#0D1E25","cw":60.0},"151":{"name":"Phthalo","hex":"#0B2D46","cw":61.0},"27":{"name":"Azure","hex":"#0A3D67","cw":62.0},"28":{"name":"Caribbean","hex":"#0086CE","cw":63.0},"29":{"name":"Teal","hex":"#2B768F","cw":64.0},"117":{"name":"Cerulean","hex":"#00B4D5","cw":65.0},"89":{"name":"Cyan","hex":"#00FFF1","cw":66.0},"99":{"name":"Robin","hex":"#9AEAEF","cw":67.0},"30":{"name":"Aqua","hex":"#72C4C4","cw":68.0},"149":{"name":"Turquoise","hex":"#3CA2A4","cw":69.0},"100":{"name":"Spruce","hex":"#8DBCB4","cw":70.0},"125":{"name":"Pistachio","hex":"#E2FFE6","cw":71.0},"31":{"name":"Seafoam","hex":"#B2E2BD","cw":72.0},"152":{"name":"Mint","hex":"#9AFFC7","cw":73.0},"32":{"name":"Jade","hex":"#61AB89","cw":74.0},"78":{"name":"Spearmint","hex":"#148E67","cw":75.0},"141":{"name":"Thicket","hex":"#005D48","cw":76.0},"134":{"name":"Peacock","hex":"#1F483A","cw":77.0},"33":{"name":"Emerald","hex":"#20603F","cw":78.0},"80":{"name":"Shamrock","hex":"#236825","cw":79.0},"34":{"name":"Jungle","hex":"#1E361A","cw":80.0},"81":{"name":"Hunter","hex":"#1E2716","cw":81.0},"35":{"name":"Forest","hex":"#425035","cw":82.0},"154":{"name":"Camo","hex":"#51684C","cw":83.0},"153":{"name":"Algae","hex":"#97AF8B","cw":84.0},"36":{"name":"Swamp","hex":"#687F67","cw":85.0},"37":{"name":"Avocado","hex":"#567C34","cw":86.0},"38":{"name":"Green","hex":"#629C3F","cw":87.0},"113":{"name":"Fern","hex":"#7ECE73","cw":88.0},"79":{"name":"Mantis","hex":"#9BFF9D","cw":89.0},"101":{"name":"Pear","hex":"#8ECE56","cw":90.0},"39":{"name":"Leaf","hex":"#A5E32D","cw":91.0},"130":{"name":"Radioactive","hex":"#C6FF00","cw":92.0},"102":{"name":"Honeydew","hex":"#D1E572","cw":93.0},"144":{"name":"Peridot","hex":"#E8FCB4","cw":94.0},"155":{"name":"Chartreuse","hex":"#B4CD3D","cw":95.0},"40":{"name":"Spring","hex":"#A9A032","cw":96.0},"173":{"name":"Crocodile","hex":"#828335","cw":97.0},"123":{"name":"Olive","hex":"#697135","cw":98.0},"142":{"name":"Murk","hex":"#4B4420","cw":99.0},"115":{"name":"Moss","hex":"#7E7645","cw":100.0},"41":{"name":"Goldenrod","hex":"#BEA55D","cw":101.0},"103":{"name":"Amber","hex":"#C18E1B","cw":102.0},"93":{"name":"Honey","hex":"#D1B300","cw":103.0},"42":{"name":"Lemon","hex":"#FFE63B","cw":104.0},"104":{"name":"Yellow","hex":"#F9E255","cw":105.0},"128":{"name":"Grapefruit","hex":"#F7FF6F","cw":106.0},"43":{"name":"Banana","hex":"#FFEC80","cw":107.0},"110":{"name":"Sanddollar","hex":"#EDE8B0","cw":108.0},"139":{"name":"Flaxen","hex":"#FDE9AC","cw":109.0},"44":{"name":"Ivory","hex":"#FFD297","cw":110.0},"167":{"name":"Buttercup","hex":"#F6BF6C","cw":111.0},"45":{"name":"Gold","hex":"#E8AF49","cw":112.0},"140":{"name":"Metals","hex":"#D1B045","cw":113.0},"75":{"name":"Marigold","hex":"#FFB53C","cw":114.0},"46":{"name":"Sunshine","hex":"#FA912B","cw":115.0},"84":{"name":"Saffron","hex":"#FF8500","cw":116.0},"172":{"name":"Sunset","hex":"#FFA147","cw":117.0},"105":{"name":"Peach","hex":"#FFB576","cw":118.0},"171":{"name":"Cantaloupe","hex":"#FF984F","cw":119.0},"47":{"name":"Orange","hex":"#D5602B","cw":120.0},"83":{"name":"Bronze","hex":"#B2560D","cw":121.0},"108":{"name":"Terracotta","hex":"#B24407","cw":122.0},"133":{"name":"Carrot","hex":"#FF5500","cw":123.0},"48":{"name":"Fire","hex":"#EF5C23","cw":124.0},"158":{"name":"Pumpkin","hex":"#FF6841","cw":125.0},"49":{"name":"Tangerine","hex":"#FF7360","cw":126.0},"77":{"name":"Cinnamon","hex":"#C15A39","cw":127.0},"156":{"name":"Caramel","hex":"#C47149","cw":128.0},"50":{"name":"Sand","hex":"#B27749","cw":129.0},"76":{"name":"Tan","hex":"#C3996F","cw":130.0},"51":{"name":"Beige","hex":"#CABBA2","cw":131.0},"52":{"name":"Stone","hex":"#827A64","cw":132.0},"95":{"name":"Taupe","hex":"#6D675B","cw":133.0},"53":{"name":"Slate","hex":"#564D48","cw":134.0},"165":{"name":"Driftwood","hex":"#766259","cw":135.0},"143":{"name":"Latte","hex":"#977B6C","cw":136.0},"162":{"name":"Dirt","hex":"#774840","cw":137.0},"106":{"name":"Clay","hex":"#603E3D","cw":138.0},"138":{"name":"Sable","hex":"#57372C","cw":139.0},"157":{"name":"Umber","hex":"#301E1A","cw":140.0},"54":{"name":"Soil","hex":"#5A4534","cw":141.0},"88":{"name":"Hickory","hex":"#72573A","cw":142.0},"124":{"name":"Tarnish","hex":"#855B33","cw":143.0},"122":{"name":"Ginger","hex":"#91532A","cw":144.0},"55":{"name":"Brown","hex":"#8E5B3F","cw":145.0},"56":{"name":"Chocolate","hex":"#563012","cw":146.0},"166":{"name":"Auburn","hex":"#7B3C1D","cw":147.0},"94":{"name":"Copper","hex":"#A44B28","cw":148.0},"57":{"name":"Rust","hex":"#8B3220","cw":149.0},"58":{"name":"Tomato","hex":"#BA311C","cw":150.0},"169":{"name":"Vermilion","hex":"#E22D18","cw":151.0},"86":{"name":"Ruby","hex":"#CE000D","cw":152.0},"116":{"name":"Cherry","hex":"#AA0024","cw":153.0},"59":{"name":"Crimson","hex":"#850012","cw":154.0},"161":{"name":"Garnet","hex":"#581014","cw":155.0},"121":{"name":"Sanguine","hex":"#2D0102","cw":156.0},"60":{"name":"Blood","hex":"#451717","cw":157.0},"61":{"name":"Maroon","hex":"#652127","cw":158.0},"87":{"name":"Berry","hex":"#8C272D","cw":159.0},"62":{"name":"Red","hex":"#C1272D","cw":160.0},"168":{"name":"Strawberry","hex":"#DF3236","cw":161.0},"132":{"name":"Cerise","hex":"#A12928","cw":162.0},"63":{"name":"Carmine","hex":"#B13A3A","cw":163.0},"107":{"name":"Brick","hex":"#9A534D","cw":164.0},"64":{"name":"Coral","hex":"#CC6F6F","cw":165.0},"159":{"name":"Blush","hex":"#FEA0A0","cw":166.0},"164":{"name":"CottonCandy","hex":"#EB799A","cw":167.0},"120":{"name":"Watermelon","hex":"#DB518D","cw":168.0},"65":{"name":"Magenta","hex":"#E934AA","cw":169.0},"170":{"name":"Fuchsia","hex":"#E7008B","cw":170.0},"160":{"name":"Raspberry","hex":"#8A024A","cw":171.0},"72":{"name":"Wine","hex":"#4D0F28","cw":172.0},"73":{"name":"Mauve","hex":"#9C4975","cw":173.0},"66":{"name":"Pink","hex":"#E77FBF","cw":174.0},"109":{"name":"Bubblegum","hex":"#E5A9FF","cw":175.0},"67":{"name":"Rose","hex":"#FFD6F6","cw":176.0},"85":{"name":"Pearl","hex":"#FBEDFA","cw":177.0}},"primaryGenes":{"0":{"name":"Basic","rarity":"Plentiful"},"3":{"name":"Clown","rarity":"Common"},"75":{"name":"Clown (B)","rarity":"Common"},"77":{"name":"Clown (G)","rarity":"Common"},"76":{"name":"Clown (V)","rarity":"Common"},"42":{"name":"Fade","rarity":"Common"},"90":{"name":"Fade (A)","rarity":"Common"},"85":{"name":"Fade (B)","rarity":"Common"},"86":{"name":"Fade (G)","rarity":"Common"},"60":{"name":"Fade (V)","rarity":"Common"},"16":{"name":"Falcon","rarity":"Common"},"92":{"name":"Falcon (A)","rarity":"Common"},"80":{"name":"Falcon (B)","rarity":"Common"},"30":{"name":"Falcon (G)","rarity":"Common"},"26":{"name":"Laced","rarity":"Common"},"48":{"name":"Laced (B)","rarity":"Common"},"73":{"name":"Laced (G)","rarity":"Common"},"61":{"name":"Laced (V)","rarity":"Common"},"40":{"name":"Leopard","rarity":"Common"},"109":{"name":"Leopard (B)","rarity":"Common"},"47":{"name":"Marble (B)","rarity":"Common"},"9":{"name":"Piebald","rarity":"Common"},"31":{"name":"Piebald (G)","rarity":"Common"},"18":{"name":"Savannah","rarity":"Common"},"103":{"name":"Savannah (A)","rarity":"Common"},"50":{"name":"Savannah (B)","rarity":"Common"},"29":{"name":"Shaggy (G)","rarity":"Common"},"4":{"name":"Speckle","rarity":"Common"},"98":{"name":"Speckle (A)","rarity":"Common"},"57":{"name":"Swirl","rarity":"Common"},"104":{"name":"Swirl (A)","rarity":"Common"},"21":{"name":"Tapir","rarity":"Common"},"95":{"name":"Tapir (A)","rarity":"Common"},"74":{"name":"Tapir (B)","rarity":"Common"},"35":{"name":"Tapir (G)","rarity":"Common"},"62":{"name":"Tapir (V)","rarity":"Common"},"2":{"name":"Tiger","rarity":"Common"},"46":{"name":"Tiger (B)","rarity":"Common"},"36":{"name":"Tiger (G)","rarity":"Common"},"70":{"name":"Arc (V)","rarity":"Uncommon"},"6":{"name":"Bar","rarity":"Uncommon"},"89":{"name":"Bar (A)","rarity":"Uncommon"},"34":{"name":"Bar (G)","rarity":"Uncommon"},"69":{"name":"Bright (V)","rarity":"Uncommon"},"10":{"name":"Cherub","rarity":"Uncommon"},"43":{"name":"Cherub (B)","rarity":"Uncommon"},"54":{"name":"Chevron (B)","rarity":"Uncommon"},"82":{"name":"Flaunt","rarity":"Uncommon"},"112":{"name":"Flaunt (A)","rarity":"Uncommon"},"111":{"name":"Flaunt (G)","rarity":"Uncommon"},"12":{"name":"Giraffe","rarity":"Uncommon"},"94":{"name":"Giraffe (A)","rarity":"Uncommon"},"81":{"name":"Giraffe (B)","rarity":"Uncommon"},"27":{"name":"Giraffe (G)","rarity":"Uncommon"},"83":{"name":"Giraffe (V)","rarity":"Uncommon"},"19":{"name":"Jaguar","rarity":"Uncommon"},"99":{"name":"Jaguar (A)","rarity":"Uncommon"},"44":{"name":"Jaguar (B)","rarity":"Uncommon"},"33":{"name":"Jaguar (G)","rarity":"Uncommon"},"14":{"name":"Jupiter","rarity":"Uncommon"},"64":{"name":"Jupiter (V)","rarity":"Uncommon"},"25":{"name":"Lionfish","rarity":"Uncommon"},"100":{"name":"Lionfish (A)","rarity":"Uncommon"},"58":{"name":"Mosaic","rarity":"Uncommon"},"38":{"name":"Mosaic (G)","rarity":"Uncommon"},"23":{"name":"Python","rarity":"Uncommon"},"56":{"name":"Ragged (B)","rarity":"Uncommon"},"84":{"name":"Ribbon","rarity":"Uncommon"},"105":{"name":"Ribbon (A)","rarity":"Uncommon"},"5":{"name":"Ripple","rarity":"Uncommon"},"79":{"name":"Ripple (B)","rarity":"Uncommon"},"78":{"name":"Ripple (G)","rarity":"Uncommon"},"71":{"name":"Shell (V)","rarity":"Uncommon"},"72":{"name":"Sphinxmoth (V)","rarity":"Uncommon"},"8":{"name":"Vipera","rarity":"Uncommon"},"96":{"name":"Vipera (A)","rarity":"Uncommon"},"63":{"name":"Vipera (V)","rarity":"Uncommon"},"110":{"name":"Boulder","rarity":"Limited"},"55":{"name":"Candycane (B)","rarity":"Limited"},"93":{"name":"Diamond (A)","rarity":"Limited"},"88":{"name":"Ground","rarity":"Limited"},"97":{"name":"Ground (A)","rarity":"Limited"},"102":{"name":"Orb (A)","rarity":"Limited"},"39":{"name":"Phantom (G)","rarity":"Limited"},"22":{"name":"Pinstripe","rarity":"Limited"},"45":{"name":"Pinstripe (B)","rarity":"Limited"},"32":{"name":"Pinstripe (G)","rarity":"Limited"},"11":{"name":"Poison","rarity":"Limited"},"53":{"name":"Poison (B)","rarity":"Limited"},"15":{"name":"Skink","rarity":"Limited"},"52":{"name":"Skink (B)","rarity":"Limited"},"67":{"name":"Skink (V)","rarity":"Limited"},"41":{"name":"Slime","rarity":"Limited"},"106":{"name":"Slime (A)","rarity":"Limited"},"59":{"name":"Stitched","rarity":"Limited"},"107":{"name":"Stitched (A)","rarity":"Limited"},"7":{"name":"Crystal","rarity":"Rare"},"91":{"name":"Crystal (A)","rarity":"Rare"},"37":{"name":"Crystal (G)","rarity":"Rare"},"1":{"name":"Iridescent","rarity":"Rare"},"17":{"name":"Metallic","rarity":"Rare"},"49":{"name":"Metallic (B)","rarity":"Rare"},"13":{"name":"Petals","rarity":"Rare"},"51":{"name":"Petals (B)","rarity":"Rare"},"87":{"name":"Pharaoh","rarity":"Rare"},"101":{"name":"Pharaoh (A)","rarity":"Rare"},"24":{"name":"Starmap","rarity":"Rare"},"65":{"name":"Starmap (V)","rarity":"Rare"},"66":{"name":"Stitched (V)","rarity":"Rare"},"20":{"name":"Wasp","rarity":"Rare"},"108":{"name":"Wasp (A)","rarity":"Rare"},"28":{"name":"Wasp (G)","rarity":"Rare"},"68":{"name":"Wasp (V)","rarity":"Rare"}},"secondaryGenes":{"0":{"name":"Basic","rarity":"Plentiful"},"42":{"name":"Blend","rarity":"Common"},"91":{"name":"Blend (A)","rarity":"Common"},"85":{"name":"Blend (B)","rarity":"Common"},"86":{"name":"Blend (G)","rarity":"Common"},"61":{"name":"Blend (V)","rarity":"Common"},"40":{"name":"Clouded","rarity":"Common"},"109":{"name":"Clouded (B)","rarity":"Common"},"7":{"name":"Daub","rarity":"Common"},"34":{"name":"Daub (G)","rarity":"Common"},"26":{"name":"Edged","rarity":"Common"},"48":{"name":"Edged (B)","rarity":"Common"},"73":{"name":"Edged (G)","rarity":"Common"},"62":{"name":"Edged (V)","rarity":"Common"},"3":{"name":"Eye Spots","rarity":"Common"},"75":{"name":"Eye Spots (B)","rarity":"Common"},"77":{"name":"Eye Spots (G)","rarity":"Common"},"76":{"name":"Eye Spots (V)","rarity":"Common"},"4":{"name":"Freckle","rarity":"Common"},"98":{"name":"Freckle (A)","rarity":"Common"},"83":{"name":"Hex (V)","rarity":"Common"},"57":{"name":"Marbled","rarity":"Common"},"103":{"name":"Marbled (A)","rarity":"Common"},"47":{"name":"Mottle (B)","rarity":"Common"},"10":{"name":"Paint","rarity":"Common"},"31":{"name":"Paint (G)","rarity":"Common"},"11":{"name":"Peregrine","rarity":"Common"},"92":{"name":"Peregrine (A)","rarity":"Common"},"80":{"name":"Peregrine (B)","rarity":"Common"},"30":{"name":"Peregrine (G)","rarity":"Common"},"18":{"name":"Safari","rarity":"Common"},"104":{"name":"Safari (A)","rarity":"Common"},"50":{"name":"Safari (B)","rarity":"Common"},"29":{"name":"Streak (G)","rarity":"Common"},"21":{"name":"Striation","rarity":"Common"},"95":{"name":"Striation (A)","rarity":"Common"},"74":{"name":"Striation (B)","rarity":"Common"},"35":{"name":"Striation (G)","rarity":"Common"},"63":{"name":"Striation (V)","rarity":"Common"},"2":{"name":"Stripes","rarity":"Common"},"46":{"name":"Stripes (B)","rarity":"Common"},"36":{"name":"Stripes (G)","rarity":"Common"},"54":{"name":"Arrow (B)","rarity":"Uncommon"},"58":{"name":"Breakup","rarity":"Uncommon"},"38":{"name":"Breakup (G)","rarity":"Uncommon"},"6":{"name":"Current","rarity":"Uncommon"},"79":{"name":"Current (B)","rarity":"Uncommon"},"78":{"name":"Current (G)","rarity":"Uncommon"},"89":{"name":"Daub (A)","rarity":"Uncommon"},"84":{"name":"Eel","rarity":"Uncommon"},"105":{"name":"Eel (A)","rarity":"Uncommon"},"82":{"name":"Flair","rarity":"Uncommon"},"112":{"name":"Flair (A)","rarity":"Uncommon"},"111":{"name":"Flair (G)","rarity":"Uncommon"},"72":{"name":"Hawkmoth (V)","rarity":"Uncommon"},"14":{"name":"Hex","rarity":"Uncommon"},"94":{"name":"Hex (A)","rarity":"Uncommon"},"81":{"name":"Hex (B)","rarity":"Uncommon"},"27":{"name":"Hex (G)","rarity":"Uncommon"},"9":{"name":"Hypnotic","rarity":"Uncommon"},"96":{"name":"Hypnotic (A)","rarity":"Uncommon"},"64":{"name":"Hypnotic (V)","rarity":"Uncommon"},"70":{"name":"Loop (V)","rarity":"Uncommon"},"23":{"name":"Morph","rarity":"Uncommon"},"24":{"name":"Noxtide","rarity":"Uncommon"},"100":{"name":"Noxtide (A)","rarity":"Uncommon"},"19":{"name":"Rosette","rarity":"Uncommon"},"99":{"name":"Rosette (A)","rarity":"Uncommon"},"44":{"name":"Rosette (B)","rarity":"Uncommon"},"33":{"name":"Rosette (G)","rarity":"Uncommon"},"15":{"name":"Saturn","rarity":"Uncommon"},"65":{"name":"Saturn (V)","rarity":"Uncommon"},"5":{"name":"Seraph","rarity":"Uncommon"},"43":{"name":"Seraph (B)","rarity":"Uncommon"},"56":{"name":"Tear (B)","rarity":"Uncommon"},"69":{"name":"Vivid (V)","rarity":"Uncommon"},"71":{"name":"Web (V)","rarity":"Uncommon"},"88":{"name":"Fissure","rarity":"Limited"},"97":{"name":"Fissure (A)","rarity":"Limited"},"110":{"name":"Myrid","rarity":"Limited"},"59":{"name":"Patchwork","rarity":"Limited"},"107":{"name":"Patchwork (A)","rarity":"Limited"},"67":{"name":"Patchwork (V)","rarity":"Limited"},"41":{"name":"Sludge","rarity":"Limited"},"106":{"name":"Sludge (A)","rarity":"Limited"},"93":{"name":"Spade (A)","rarity":"Limited"},"16":{"name":"Spinner","rarity":"Limited"},"52":{"name":"Spinner (B)","rarity":"Limited"},"68":{"name":"Spinner (V)","rarity":"Limited"},"39":{"name":"Spirit (G)","rarity":"Limited"},"55":{"name":"Sugarplum (B)","rarity":"Limited"},"12":{"name":"Toxin","rarity":"Limited"},"53":{"name":"Toxin (B)","rarity":"Limited"},"22":{"name":"Trail","rarity":"Limited"},"45":{"name":"Trail (B)","rarity":"Limited"},"32":{"name":"Trail (G)","rarity":"Limited"},"102":{"name":"Weaver (A)","rarity":"Limited"},"17":{"name":"Alloy","rarity":"Rare"},"49":{"name":"Alloy (B)","rarity":"Rare"},"20":{"name":"Bee","rarity":"Rare"},"108":{"name":"Bee (A)","rarity":"Rare"},"28":{"name":"Bee (G)","rarity":"Rare"},"60":{"name":"Bee (V)","rarity":"Rare"},"13":{"name":"Butterfly","rarity":"Rare"},"51":{"name":"Butterfly (B)","rarity":"Rare"},"25":{"name":"Constellation","rarity":"Rare"},"66":{"name":"Constellation (V)","rarity":"Rare"},"8":{"name":"Facet","rarity":"Rare"},"90":{"name":"Facet (A)","rarity":"Rare"},"37":{"name":"Facet (G)","rarity":"Rare"},"87":{"name":"Sarcophagus","rarity":"Rare"},"101":{"name":"Sarcophagus (A)","rarity":"Rare"},"1":{"name":"Shimmer","rarity":"Rare"}},"tertiaryGenes":{"0":{"name":"Basic","rarity":"Plentiful"},"13":{"name":"Contour","rarity":"Common"},"46":{"name":"Contour (B)","rarity":"Common"},"80":{"name":"Kumo (A)","rarity":"Common"},"24":{"name":"Peacock","rarity":"Common"},"90":{"name":"Peacock (A)","rarity":"Common"},"60":{"name":"Peacock (V)","rarity":"Common"},"26":{"name":"Shardflank (G)","rarity":"Common"},"11":{"name":"Thylacine","rarity":"Common"},"93":{"name":"Thylacine (A)","rarity":"Common"},"29":{"name":"Thylacine (G)","rarity":"Common"},"39":{"name":"Trimmings (B)","rarity":"Common"},"5":{"name":"Underbelly","rarity":"Common"},"52":{"name":"Underbelly (B)","rarity":"Common"},"31":{"name":"Underbelly (G)","rarity":"Common"},"70":{"name":"Underbelly (V)","rarity":"Common"},"55":{"name":"Braids (G)","rarity":"Uncommon"},"6":{"name":"Crackle","rarity":"Uncommon"},"50":{"name":"Crackle (B)","rarity":"Uncommon"},"84":{"name":"Fangs (A)","rarity":"Uncommon"},"103":{"name":"Flecks","rarity":"Uncommon"},"104":{"name":"Flecks (A)","rarity":"Uncommon"},"64":{"name":"Flecks (V)","rarity":"Uncommon"},"20":{"name":"Ghost","rarity":"Uncommon"},"88":{"name":"Ghost (A)","rarity":"Uncommon"},"47":{"name":"Ghost (B)","rarity":"Uncommon"},"25":{"name":"Ghost (G)","rarity":"Uncommon"},"16":{"name":"Lace","rarity":"Uncommon"},"44":{"name":"Lace (B)","rarity":"Uncommon"},"9":{"name":"Okapi","rarity":"Uncommon"},"59":{"name":"Okapi (V)","rarity":"Uncommon"},"23":{"name":"Ringlets","rarity":"Uncommon"},"40":{"name":"Ringlets (B)","rarity":"Uncommon"},"30":{"name":"Ringlets (G)","rarity":"Uncommon"},"7":{"name":"Smoke","rarity":"Uncommon"},"28":{"name":"Smoke (G)","rarity":"Uncommon"},"97":{"name":"Sparkle","rarity":"Uncommon"},"96":{"name":"Sparkle (A)","rarity":"Uncommon"},"98":{"name":"Sparkle (B)","rarity":"Uncommon"},"99":{"name":"Sparkle (G)","rarity":"Uncommon"},"100":{"name":"Sparkle (V)","rarity":"Uncommon"},"68":{"name":"Thorns (V)","rarity":"Uncommon"},"34":{"name":"Wintercoat (G)","rarity":"Uncommon"},"78":{"name":"Angler (V)","rarity":"Limited"},"65":{"name":"Beetle (V)","rarity":"Limited"},"36":{"name":"Blossom (G)","rarity":"Limited"},"63":{"name":"Branches (V)","rarity":"Limited"},"18":{"name":"Capsule","rarity":"Limited"},"83":{"name":"Capsule (A)","rarity":"Limited"},"74":{"name":"Capsule (B)","rarity":"Limited"},"75":{"name":"Capsule (G)","rarity":"Limited"},"56":{"name":"Capsule (V)","rarity":"Limited"},"58":{"name":"Crackle (V)","rarity":"Limited"},"22":{"name":"Firefly","rarity":"Limited"},"85":{"name":"Firefly (A)","rarity":"Limited"},"61":{"name":"Firefly (V)","rarity":"Limited"},"4":{"name":"Gembond","rarity":"Limited"},"76":{"name":"Gliders (B)","rarity":"Limited"},"53":{"name":"Keel","rarity":"Limited"},"81":{"name":"Mucous (A)","rarity":"Limited"},"79":{"name":"Polkadot (A)","rarity":"Limited"},"82":{"name":"Polypore (A)","rarity":"Limited"},"49":{"name":"Porcupine (B)","rarity":"Limited"},"14":{"name":"Runes","rarity":"Limited"},"32":{"name":"Runes (G)","rarity":"Limited"},"57":{"name":"Runes (V)","rarity":"Limited"},"15":{"name":"Scales","rarity":"Limited"},"92":{"name":"Scales (A)","rarity":"Limited"},"33":{"name":"Scorpion (G)","rarity":"Limited"},"45":{"name":"Skeletal (B)","rarity":"Limited"},"19":{"name":"Smirch","rarity":"Limited"},"8":{"name":"Spines","rarity":"Limited"},"42":{"name":"Squiggle (B)","rarity":"Limited"},"38":{"name":"Veined","rarity":"Limited"},"91":{"name":"Veined (A)","rarity":"Limited"},"2":{"name":"Veined (G)","rarity":"Limited"},"35":{"name":"Weathered (G)","rarity":"Limited"},"1":{"name":"Circuit","rarity":"Rare"},"66":{"name":"Diaphanous (V)","rarity":"Rare"},"41":{"name":"Fans (B)","rarity":"Rare"},"3":{"name":"Fans (G)","rarity":"Rare"},"21":{"name":"Filigree","rarity":"Rare"},"43":{"name":"Filigree (B)","rarity":"Rare"},"86":{"name":"Frills (A)","rarity":"Rare"},"10":{"name":"Glimmer","rarity":"Rare"},"94":{"name":"Glimmer (A)","rarity":"Rare"},"95":{"name":"Glimmer (B)","rarity":"Rare"},"101":{"name":"Glimmer (G)","rarity":"Rare"},"102":{"name":"Glimmer (V)","rarity":"Rare"},"54":{"name":"Glowtail","rarity":"Rare"},"89":{"name":"Glowtail (A)","rarity":"Rare"},"27":{"name":"Gnarlhorns (G)","rarity":"Rare"},"87":{"name":"Jewels (A)","rarity":"Rare"},"73":{"name":"Koi","rarity":"Rare"},"67":{"name":"Mop (V)","rarity":"Rare"},"17":{"name":"Opal","rarity":"Rare"},"37":{"name":"Opal (G)","rarity":"Rare"},"62":{"name":"Opal (V)","rarity":"Rare"},"77":{"name":"Pinions (G)","rarity":"Rare"},"51":{"name":"Plumage (B)","rarity":"Rare"},"12":{"name":"Stained","rarity":"Rare"},"69":{"name":"Stained (B)","rarity":"Rare"},"71":{"name":"Stained (G)","rarity":"Rare"},"72":{"name":"Stained (V)","rarity":"Rare"},"48":{"name":"Wraith (B)","rarity":"Rare"}},"breeds":{"1":{"name":"Fae","rarity":"Plentiful"},"2":{"name":"Guardian","rarity":"Plentiful"},"3":{"name":"Mirror","rarity":"Plentiful"},"6":{"name":"Tundra","rarity":"Plentiful"},"4":{"name":"Pearlcatcher","rarity":"Common"},"5":{"name":"Ridgeback","rarity":"Common"},"7":{"name":"Spiral","rarity":"Common"},"9":{"name":"Snapper","rarity":"Common"},"13":{"name":"Skydancer","rarity":"Uncommon"},"14":{"name":"Bogsneak","rarity":"Uncommon"},"15":{"name":"Obelisk","rarity":"Uncommon"},"8":{"name":"Imperial","rarity":"Limited"},"11":{"name":"Nocturne","rarity":"Limited"},"10":{"name":"Wildclaw","rarity":"Rare"},"12":{"name":"Coatl","rarity":"Rare"},"17":{"name":"Gaoler","rarity":"Ancient"},"18":{"name":"Banescale","rarity":"Ancient"},"19":{"name":"Veilspun","rarity":"Ancient"},"20":{"name":"Aberration","rarity":"Ancient"}}};
 
 const STORAGE_KEY = 'fr-lineage-tree-v1';
+const FILTER_KEY = 'fr-lineage-tree-v1-filter';
+const UNASSIGNED = 'Unassigned';
 
 function loadState() {
   try {
@@ -331,6 +340,44 @@ function saveState() {
 
 let state = loadState();
 let editingId = null;
+let currentFilter = localStorage.getItem(FILTER_KEY) || 'ALL';
+
+function dragonLineage(d) {
+  return d.lineage && d.lineage.trim() ? d.lineage.trim() : UNASSIGNED;
+}
+
+function getVisibleDragons() {
+  if (currentFilter === 'ALL') return state.dragons;
+  return state.dragons.filter(d => dragonLineage(d) === currentFilter);
+}
+
+function populateLineageFilter() {
+  const counts = {};
+  state.dragons.forEach(d => {
+    const l = dragonLineage(d);
+    counts[l] = (counts[l] || 0) + 1;
+  });
+  const names = Object.keys(counts).sort((a, b) => a === UNASSIGNED ? 1 : b === UNASSIGNED ? -1 : a.localeCompare(b));
+  if (!names.includes(currentFilter) && currentFilter !== 'ALL') currentFilter = 'ALL';
+
+  els.lineageFilter.innerHTML = '';
+  const allOpt = document.createElement('option');
+  allOpt.value = 'ALL';
+  allOpt.textContent = 'All lineages (' + state.dragons.length + ')';
+  els.lineageFilter.appendChild(allOpt);
+  names.forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = n;
+    opt.textContent = n + ' (' + counts[n] + ')';
+    els.lineageFilter.appendChild(opt);
+  });
+  els.lineageFilter.value = currentFilter;
+
+  els.lineageOptions.innerHTML = names
+    .filter(n => n !== UNASSIGNED)
+    .map(n => '<option value="' + n.replace(/"/g, '&quot;') + '">')
+    .join('');
+}
 
 function uid() {
   return 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -409,6 +456,9 @@ function hexForColorName(name) {
 const els = {
   scryUrl: document.getElementById('scryUrl'),
   nickname: document.getElementById('nickname'),
+  lineage: document.getElementById('lineage'),
+  lineageOptions: document.getElementById('lineageOptions'),
+  lineageFilter: document.getElementById('lineageFilter'),
   generation: document.getElementById('generation'),
   gender: document.getElementById('gender'),
   parent1: document.getElementById('parent1'),
@@ -447,10 +497,18 @@ document.getElementById('parseBtn').addEventListener('click', () => {
   showToast('Parsed. Check the fields below and correct anything unrecognized.');
 });
 
+els.lineageFilter.addEventListener('change', () => {
+  currentFilter = els.lineageFilter.value;
+  localStorage.setItem(FILTER_KEY, currentFilter);
+  renderList();
+  renderTree();
+});
+
 function resetForm() {
   editingId = null;
   els.scryUrl.value = '';
   els.nickname.value = '';
+  els.lineage.value = currentFilter !== 'ALL' ? currentFilter : '';
   els.generation.value = '';
   els.gender.value = '';
   els.parent1.value = '';
@@ -493,6 +551,7 @@ function startEdit(id) {
   editingId = id;
   els.scryUrl.value = d.scryUrl || '';
   els.nickname.value = d.nickname || '';
+  els.lineage.value = d.lineage || '';
   els.generation.value = d.generation || '';
   els.gender.value = d.traits.gender || '';
   populateParentSelects();
@@ -537,6 +596,7 @@ els.saveBtn.addEventListener('click', () => {
   const record = {
     id: editingId || uid(),
     nickname: nickname,
+    lineage: els.lineage.value.trim(),
     scryUrl: els.scryUrl.value.trim(),
     generation: genVal ? parseInt(genVal, 10) : null,
     parent1: els.parent1.value || null,
@@ -602,22 +662,28 @@ document.getElementById('importFile').addEventListener('change', (e) => {
 });
 
 function renderList() {
-  els.countLabel.textContent = state.dragons.length;
+  const visible = getVisibleDragons();
+  els.countLabel.textContent = visible.length + (currentFilter === 'ALL' ? '' : ' / ' + state.dragons.length);
   els.dragonList.innerHTML = '';
   if (!state.dragons.length) {
     els.dragonList.innerHTML = '<div class="empty-msg">No dragons yet. Paste a scry link above to add your first one.</div>';
     return;
   }
+  if (!visible.length) {
+    els.dragonList.innerHTML = '<div class="empty-msg">No dragons in this lineage yet.</div>';
+    return;
+  }
   const effGen = computeGenerations();
-  state.dragons
+  visible
     .slice()
     .sort((a, b) => effGen[a.id] - effGen[b.id] || a.nickname.localeCompare(b.nickname))
     .forEach(d => {
       const row = document.createElement('div');
       row.className = 'dragon-list-item';
+      const lineageTag = currentFilter === 'ALL' ? ' &middot; ' + escapeHtml(dragonLineage(d)) : '';
       row.innerHTML =
         '<img src="' + (d.scryUrl || '') + '" onerror="this.style.visibility=\'hidden\'">' +
-        '<span class="name">' + escapeHtml(d.nickname) + '</span>' +
+        '<span class="name">' + escapeHtml(d.nickname) + '<span style="color:var(--text-muted); font-weight:400;">' + lineageTag + '</span></span>' +
         '<span class="gen-badge">G' + effGen[d.id] + (d.generation ? '' : ' (auto)') + '</span>';
       row.addEventListener('click', () => startEdit(d.id));
       els.dragonList.appendChild(row);
@@ -665,19 +731,24 @@ function renderTree() {
   const canvas = els.canvas;
   Array.from(canvas.querySelectorAll('.gen-row')).forEach(el => el.remove());
 
-  if (!state.dragons.length) {
+  const visible = getVisibleDragons();
+  const visibleIds = new Set(visible.map(d => d.id));
+
+  if (!visible.length) {
     els.linesSvg.innerHTML = '';
     els.linesSvg.setAttribute('width', 0);
     els.linesSvg.setAttribute('height', 0);
     return;
   }
 
+  // generations are computed over the full dataset so cross-lineage
+  // parent links still resolve to a correct absolute generation number
   const effGen = computeGenerations();
   const byId = {};
   state.dragons.forEach(d => byId[d.id] = d);
 
-  const genNums = Array.from(new Set(Object.values(effGen))).sort((a, b) => a - b);
-  const rows = genNums.map(g => state.dragons.filter(d => effGen[d.id] === g).map(d => d.id));
+  const genNums = Array.from(new Set(visible.map(d => effGen[d.id]))).sort((a, b) => a - b);
+  const rows = genNums.map(g => visible.filter(d => effGen[d.id] === g).map(d => d.id));
 
   // barycenter ordering passes to reduce line crossings
   for (let pass = 0; pass < 3; pass++) {
@@ -804,6 +875,7 @@ function drawLines() {
 }
 
 function renderAll() {
+  populateLineageFilter();
   populateParentSelects();
   renderList();
   renderTree();
