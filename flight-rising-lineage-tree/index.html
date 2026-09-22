@@ -158,6 +158,17 @@
   }
   #canvas { position: relative; min-width: 100%; min-height: 100%; }
   #lines { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
+  .tree-block { margin-bottom: 8px; }
+  .cluster-header {
+    display: inline-block;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin: 4px 0 18px;
+    padding-bottom: 5px;
+    border-bottom: 2px solid var(--card-border);
+  }
+  .cluster-header:not(:first-child) { margin-top: 30px; }
   .gen-row {
     display: flex;
     gap: 36px;
@@ -1176,28 +1187,14 @@ function computeGenerationCertainty() {
   return certain;
 }
 
-function renderTree() {
-  const canvas = els.canvas;
-  Array.from(canvas.querySelectorAll('.gen-row')).forEach(el => el.remove());
-
-  const visible = getVisibleDragons();
-  const visibleIds = new Set(visible.map(d => d.id));
-
-  if (!visible.length) {
-    els.linesSvg.innerHTML = '';
-    els.linesSvg.setAttribute('width', 0);
-    els.linesSvg.setAttribute('height', 0);
-    return;
-  }
-
-  // generations are computed over the full dataset so cross-lineage
-  // parent links still resolve to a correct absolute generation number
-  const effGen = computeGenerations();
-  const byId = {};
-  state.dragons.forEach(d => byId[d.id] = d);
-
-  const genNums = Array.from(new Set(visible.map(d => effGen[d.id]))).sort((a, b) => a - b);
-  let rows = genNums.map(g => visible.filter(d => effGen[d.id] === g).map(d => d.id));
+// Builds one self-contained mini-tree (a stack of gen-rows) for exactly the
+// given dragon ids - used both for a single lineage's whole view and for one
+// connected family cluster within the unified "All lineages" view. Row
+// numbers are each dragon's real global generation; only which dragons are
+// included varies by caller.
+function buildGenRows(dragonIds, byId, effGen, certain, showLineageTag) {
+  const genNums = Array.from(new Set(dragonIds.map(id => effGen[id]))).sort((a, b) => a - b);
+  let rows = genNums.map(g => dragonIds.filter(id => effGen[id] === g));
 
   // Barycenter ordering: pulls each dragon toward the horizontal position of its
   // parents AND its mates, wherever those rows are - above, below, or the same
@@ -1261,9 +1258,8 @@ function renderTree() {
     return out;
   });
 
-  const certain = computeGenerationCertainty();
-  const showLineageTag = currentFilter === 'ALL';
-
+  const block = document.createElement('div');
+  block.className = 'tree-block';
   rows.forEach((rowIds, i) => {
     const rowEl = document.createElement('div');
     rowEl.className = 'gen-row';
@@ -1275,8 +1271,115 @@ function renderTree() {
       const d = byId[id];
       rowEl.appendChild(buildCard(d, certain[id], showLineageTag));
     });
-    canvas.appendChild(rowEl);
+    block.appendChild(rowEl);
   });
+  return block;
+}
+
+// Undirected connectivity over parent + mate links (parent edges are stored
+// one-directional on the child, so children-of-this-dragon are found via a
+// reverse lookup). Two dragons end up in the same component the moment ANY
+// chain of parent or mate links connects them - including across lineages.
+function computeConnectedComponents(dragonIds, byId) {
+  const idSet = new Set(dragonIds);
+  const childrenOf = {};
+  state.dragons.forEach(d => {
+    [d.parent1, d.parent2].forEach(pid => {
+      if (!pid) return;
+      (childrenOf[pid] = childrenOf[pid] || []).push(d.id);
+    });
+  });
+
+  const visited = new Set();
+  const components = [];
+  dragonIds.forEach(startId => {
+    if (visited.has(startId)) return;
+    const comp = [];
+    const stack = [startId];
+    visited.add(startId);
+    while (stack.length) {
+      const id = stack.pop();
+      comp.push(id);
+      const d = byId[id];
+      if (!d) continue;
+      const neighbors = [d.parent1, d.parent2, ...(d.mates || []), ...(childrenOf[id] || [])];
+      neighbors.forEach(nId => {
+        if (nId && idSet.has(nId) && !visited.has(nId)) {
+          visited.add(nId);
+          stack.push(nId);
+        }
+      });
+    }
+    components.push(comp);
+  });
+  return components;
+}
+
+function lineageLabelForComponent(componentIds, byId) {
+  const names = new Set(componentIds.map(id => dragonLineage(byId[id])));
+  return Array.from(names)
+    .sort((a, b) => a === UNASSIGNED ? 1 : b === UNASSIGNED ? -1 : a.localeCompare(b))
+    .join(' + ');
+}
+
+// The unified "All lineages" view abandons the single shared generation grid:
+// mixing every dragon into one set of Gen-N rows made unrelated challenges
+// look connected and turned every cross-cutting line into visual noise.
+// Instead each actually-connected family (by blood or by mate, including
+// crossbred pairs that merge two lineages) gets its own self-contained
+// mini-tree, stacked with a header naming which lineage(s) it spans. Fully
+// unpaired dragons are pooled into one trailing "Unpaired" block.
+function renderUnifiedClusters(canvas, visible, byId, effGen, certain) {
+  const ids = visible.map(d => d.id);
+  const components = computeConnectedComponents(ids, byId);
+  const multi = components.filter(c => c.length > 1);
+  const singles = components.filter(c => c.length === 1).map(c => c[0]);
+
+  multi
+    .slice()
+    .sort((a, b) => b.length - a.length || lineageLabelForComponent(a, byId).localeCompare(lineageLabelForComponent(b, byId)))
+    .forEach(componentIds => {
+      const header = document.createElement('div');
+      header.className = 'cluster-header';
+      header.textContent = lineageLabelForComponent(componentIds, byId) + ' · ' + componentIds.length + ' dragons';
+      canvas.appendChild(header);
+      canvas.appendChild(buildGenRows(componentIds, byId, effGen, certain, true));
+    });
+
+  if (singles.length) {
+    const header = document.createElement('div');
+    header.className = 'cluster-header';
+    header.textContent = 'Unpaired dragons · ' + singles.length;
+    canvas.appendChild(header);
+    canvas.appendChild(buildGenRows(singles, byId, effGen, certain, true));
+  }
+}
+
+function renderTree() {
+  const canvas = els.canvas;
+  Array.from(canvas.querySelectorAll('.tree-block, .cluster-header')).forEach(el => el.remove());
+
+  const visible = getVisibleDragons();
+
+  if (!visible.length) {
+    els.linesSvg.innerHTML = '';
+    els.linesSvg.setAttribute('width', 0);
+    els.linesSvg.setAttribute('height', 0);
+    return;
+  }
+
+  // generations are computed over the full dataset so cross-lineage
+  // parent links still resolve to a correct absolute generation number
+  const effGen = computeGenerations();
+  const certain = computeGenerationCertainty();
+  const byId = {};
+  state.dragons.forEach(d => byId[d.id] = d);
+
+  if (currentFilter === 'ALL') {
+    renderUnifiedClusters(canvas, visible, byId, effGen, certain);
+  } else {
+    canvas.appendChild(buildGenRows(visible.map(d => d.id), byId, effGen, certain, false));
+  }
 
   requestAnimationFrame(drawLines);
 }
