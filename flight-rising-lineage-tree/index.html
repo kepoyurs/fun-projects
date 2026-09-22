@@ -289,6 +289,11 @@
     border: 1px solid var(--border); box-sizing: border-box;
   }
   .calc-color-swatch.goal-hit { border: 2px solid var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .calc-color-swatch.inline { width: 14px; height: 14px; vertical-align: -2px; margin-right: 5px; display: inline-block; }
+  .chain-steps { margin: 10px 0 16px; padding: 10px 12px; background: var(--bg); border-radius: 6px; }
+  .chain-step { font-size: 0.85rem; padding: 3px 0; }
+  .chain-step b { color: var(--accent); }
+  .chain-note { font-size: 0.72rem; color: var(--text-muted); font-style: italic; margin-top: 8px; }
   .modal-actions { display: flex; gap: 8px; margin-top: 16px; }
   .modal-actions button { flex: 1; }
 
@@ -461,31 +466,29 @@
 <div class="modal-overlay" id="calcModalOverlay">
   <div class="modal-box wide">
     <h2>Breeding Calculator</h2>
-    <p class="modal-sub">Pick two of your dragons, using whatever traits are on file for them here. Dragons that can't breed with your first pick are greyed out in the second list.</p>
-
-    <div class="calc-grid">
-      <div>
-        <label for="calcParent1">Parent 1</label>
-        <select id="calcParent1"><option value="">Select a dragon&hellip;</option></select>
-      </div>
-      <div>
-        <label for="calcParent2">Parent 2</label>
-        <select id="calcParent2"><option value="">Select a dragon&hellip;</option></select>
-      </div>
-    </div>
-    <div id="calcEligibility" class="inbreed-warning"></div>
 
     <div class="calc-tabs">
       <button type="button" class="calc-tab active" id="calcTabPredict">What will I get?</button>
-      <button type="button" class="calc-tab" id="calcTabSearch">I'm looking for a trait</button>
+      <button type="button" class="calc-tab" id="calcTabSearch">Find a breeding plan</button>
     </div>
 
     <div id="calcPredictPanel" class="calc-panel">
-      <p class="hint">Shows the full odds breakdown for breed, colors and genes. (Gender's always 50/50, so it's left out.)</p>
+      <p class="hint">Pick two of your dragons to see the full odds breakdown for breed, colors and genes. (Gender's always 50/50, so it's left out.) Dragons that can't breed with your first pick are greyed out in the second list.</p>
+      <div class="calc-grid">
+        <div>
+          <label for="calcParent1">Parent 1</label>
+          <select id="calcParent1"><option value="">Select a dragon&hellip;</option></select>
+        </div>
+        <div>
+          <label for="calcParent2">Parent 2</label>
+          <select id="calcParent2"><option value="">Select a dragon&hellip;</option></select>
+        </div>
+      </div>
+      <div id="calcEligibility" class="inbreed-warning"></div>
     </div>
 
     <div id="calcSearchPanel" class="calc-panel" style="display:none;">
-      <p class="hint">Fill in any traits you're after - leave the rest blank.</p>
+      <p class="hint">Fill in any traits you're after and we'll search your whole roster - including hypothetical breeding chains up to 5 steps deep - for the best way to get there. No need to pick parents.</p>
       <div class="calc-grid">
         <div>
           <label for="calcGoalBreed">Breed</label>
@@ -1164,14 +1167,26 @@ function namesEqual(a, b) {
   return !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
+// Built once per table (keyed by object identity) instead of scanning
+// linearly on every call - the chain search calls this many thousands of
+// times per run.
+const NAME_INDEX = new Map();
+function nameIndexFor(table) {
+  let idx = NAME_INDEX.get(table);
+  if (!idx) {
+    idx = {};
+    for (const id in table) idx[table[id].name.toLowerCase()] = id;
+    NAME_INDEX.set(table, idx);
+  }
+  return idx;
+}
+
 function findIdByName(table, name) {
   if (!name) return null;
-  const trimmed = name.trim();
+  const trimmed = name.trim().toLowerCase();
   if (!trimmed) return null;
-  for (const id in table) {
-    if (table[id].name.toLowerCase() === trimmed.toLowerCase()) return id;
-  }
-  return null;
+  const idx = nameIndexFor(table);
+  return idx[trimmed] || null;
 }
 
 function colorRangeSize(cwA, cwB) {
@@ -1184,20 +1199,23 @@ function colorInShortRange(goalCw, cwA, cwB) {
   const directIsShorter = raw <= WHEEL_SIZE - raw;
   return directIsShorter ? (goalCw >= lo && goalCw <= hi) : (goalCw <= lo || goalCw >= hi);
 }
+// Built once, not per call - the chain search calls colorsInShortRange
+// many thousands of times, and DATA.colors never changes at runtime.
+const COLOR_BY_CW = {};
+Object.values(DATA.colors).forEach(c => { COLOR_BY_CW[c.cw] = c; });
+
 // The actual list of colors along the short arc between two parents, in
 // wheel order, so the calculator can show swatches instead of just a count.
 function colorsInShortRange(cwA, cwB) {
-  const byCw = {};
-  Object.values(DATA.colors).forEach(c => { byCw[c.cw] = c; });
   const raw = Math.abs(cwA - cwB);
   const lo = Math.min(cwA, cwB), hi = Math.max(cwA, cwB);
   const directIsShorter = raw <= WHEEL_SIZE - raw;
   const out = [];
   if (directIsShorter) {
-    for (let cw = lo; cw <= hi; cw++) if (byCw[cw]) out.push(byCw[cw]);
+    for (let cw = lo; cw <= hi; cw++) if (COLOR_BY_CW[cw]) out.push(COLOR_BY_CW[cw]);
   } else {
-    for (let cw = hi; cw <= WHEEL_SIZE; cw++) if (byCw[cw]) out.push(byCw[cw]);
-    for (let cw = 1; cw <= lo; cw++) if (byCw[cw]) out.push(byCw[cw]);
+    for (let cw = hi; cw <= WHEEL_SIZE; cw++) if (COLOR_BY_CW[cw]) out.push(COLOR_BY_CW[cw]);
+    for (let cw = 1; cw <= lo; cw++) if (COLOR_BY_CW[cw]) out.push(COLOR_BY_CW[cw]);
   }
   return out;
 }
@@ -1329,6 +1347,249 @@ function getIneligibilityReasons(id1, id2) {
   return reasons;
 }
 
+// ============ Breeding-plan chain search ============
+// An offspring's slot always inherits ONE of its two parents' actual values
+// (never a third option), weighted by rarity tier - so a hypothetical
+// multi-step chain can only ever propagate a value that's already present
+// on some dragon you own; it never invents new traits. What a chain DOES
+// buy you is a way to combine traits from dragons that can't be bred
+// directly with each other, by routing through a compatible intermediary.
+//
+// Each "chain state" tracks, per trait slot, a full probability
+// distribution over the specific values a hypothetical dragon at that
+// point could carry (not just whether it matches the goal), because that
+// distribution is exactly what's needed to compute the next cross.
+const CHAIN_SLOTS = {
+  breed:          { table: null, isColor: false },
+  primaryColor:   { table: 'colors', isColor: true },
+  primaryGene:    { table: 'primaryGenes', isColor: false },
+  secondaryColor: { table: 'colors', isColor: true },
+  secondaryGene:  { table: 'secondaryGenes', isColor: false },
+  tertiaryColor:  { table: 'colors', isColor: true },
+  tertiaryGene:   { table: 'tertiaryGenes', isColor: false },
+};
+const CHAIN_SLOT_TRAIT_KEY = {
+  breed: 'breed', primaryColor: 'primaryColor', primaryGene: 'primaryGene',
+  secondaryColor: 'secondaryColor', secondaryGene: 'secondaryGene',
+  tertiaryColor: 'tertiaryColor', tertiaryGene: 'tertiaryGene',
+};
+
+function slotRarityLookup(slotKey, name) {
+  if (slotKey === 'breed') {
+    const id = findIdByName(DATA.breeds, name);
+    return id ? DATA.breedRarity[id] : null;
+  }
+  const table = DATA[CHAIN_SLOTS[slotKey].table];
+  const id = findIdByName(table, name);
+  if (!id) return null;
+  return DATA.geneRarity[GENE_SLOT_RARITY_KEY[CHAIN_SLOTS[slotKey].table]][id];
+}
+
+// Tier-based slots (breed + genes): offspring gets exactly one parent's
+// value, weighted by RARITY_ODDS for their tiers.
+function crossTierDistribution(slotKey, distA, distB) {
+  const result = {};
+  for (const nameA in distA) {
+    for (const nameB in distB) {
+      const pAB = distA[nameA] * distB[nameB];
+      if (pAB <= 0) continue;
+      if (nameA === nameB) {
+        result[nameA] = (result[nameA] || 0) + pAB;
+        continue;
+      }
+      const tierA = slotRarityLookup(slotKey, nameA), tierB = slotRarityLookup(slotKey, nameB);
+      if (!tierA || !tierB) continue; // no rarity data - can't resolve this pair, drops out
+      const wA = RARITY_ODDS[tierA][tierB];
+      result[nameA] = (result[nameA] || 0) + pAB * wA;
+      result[nameB] = (result[nameB] || 0) + pAB * (1 - wA);
+    }
+  }
+  return result;
+}
+
+// Color slots: offspring is uniformly one of the colors on the short arc
+// between the two parents' actual colors.
+function crossColorDistribution(distA, distB) {
+  const result = {};
+  for (const nameA in distA) {
+    const idA = findIdByName(DATA.colors, nameA);
+    if (!idA) continue;
+    const cwA = DATA.colors[idA].cw;
+    for (const nameB in distB) {
+      const idB = findIdByName(DATA.colors, nameB);
+      if (!idB) continue;
+      const cwB = DATA.colors[idB].cw;
+      const pAB = distA[nameA] * distB[nameB];
+      if (pAB <= 0) continue;
+      const range = colorsInShortRange(cwA, cwB);
+      const share = pAB / range.length;
+      range.forEach(c => { result[c.name] = (result[c.name] || 0) + share; });
+    }
+  }
+  return result;
+}
+
+// Caps how many distinct values a node's distribution tracks per slot,
+// keeping the highest-probability ones. Without this, a color slot's
+// support can balloon every generation (each cross spreads probability
+// across a whole wheel arc), making the search combinatorially slow for
+// large or color-diverse rosters. Search results stay a close
+// approximation since the dropped entries are always the least likely.
+const CHAIN_DIST_CAP = 25;
+function capDistribution(dist) {
+  const entries = Object.entries(dist);
+  if (entries.length <= CHAIN_DIST_CAP) return dist;
+  entries.sort((a, b) => b[1] - a[1]);
+  const out = {};
+  entries.slice(0, CHAIN_DIST_CAP).forEach(([k, v]) => { out[k] = v; });
+  return out;
+}
+
+function crossSlotDistribution(slotKey, distA, distB) {
+  if (!Object.keys(distA).length || !Object.keys(distB).length) return {};
+  const dist = CHAIN_SLOTS[slotKey].isColor ? crossColorDistribution(distA, distB) : crossTierDistribution(slotKey, distA, distB);
+  return capDistribution(dist);
+}
+
+function makeChainLeaf(dragon) {
+  const dist = {};
+  for (const slotKey in CHAIN_SLOTS) {
+    const val = slotKey === 'breed' ? dragon.traits.breed : dragon.traits[CHAIN_SLOT_TRAIT_KEY[slotKey]];
+    dist[slotKey] = val ? { [val]: 1 } : {};
+  }
+  return { usedIds: new Set([dragon.id]), dist, steps: [{ type: 'leaf', dragon }] };
+}
+
+// Same rules as getIneligibilityReasons, but takes a precomputed id->dragon
+// map and skips building reason strings - this runs inside the chain
+// search's hot loop (many thousands of calls per search), where
+// getIneligibilityReasons's per-call linear scans over state.dragons would
+// dominate the runtime.
+function chainFirstCrossEligible(id1, id2, byId) {
+  if (id1 === id2) return false;
+  const p1 = byId[id1], p2 = byId[id2];
+  if (!p1 || !p2) return false;
+  if (p1.traits.gender && p2.traits.gender && p1.traits.gender === p2.traits.gender) return false;
+  if (checkAncientMismatch(p1, p2)) return false;
+  const anc1 = ancestorDepths(id1, 5, byId);
+  const anc2 = ancestorDepths(id2, 5, byId);
+  for (const [aid] of anc1) if (anc2.has(aid)) return false;
+  return true;
+}
+
+// Whether a new real dragon can be crossed onto an existing chain state.
+// With exactly one real dragon used so far, both sides are known real
+// dragons, so we can reuse the full gender/ancient/inbreeding check. Past
+// that the "parent" is hypothetical (unknown gender, ancestry not fully
+// tracked), so we only enforce the one rule we can still verify for sure:
+// Ancient breeds only cross with their own exact kind.
+function chainBreedable(state, candidate, byId) {
+  if (state.usedIds.has(candidate.id)) return false;
+  if (state.usedIds.size === 1) {
+    const onlyId = [...state.usedIds][0];
+    return chainFirstCrossEligible(onlyId, candidate.id, byId);
+  }
+  const candBreedName = candidate.traits.breed;
+  if (!candBreedName) return true;
+  const candId = findIdByName(DATA.breeds, candBreedName);
+  if (!candId) return true;
+  const candIsAncient = !!DATA.breedIsAncient[candId];
+  const stateNames = Object.keys(state.dist.breed || {});
+  if (!stateNames.length) return true;
+  if (candIsAncient) return stateNames.every(n => n === candBreedName);
+  return stateNames.every(n => {
+    const nId = findIdByName(DATA.breeds, n);
+    return nId && !DATA.breedIsAncient[nId];
+  });
+}
+
+function crossChainState(state, candidate) {
+  const candDist = {};
+  for (const slotKey in CHAIN_SLOTS) {
+    const val = slotKey === 'breed' ? candidate.traits.breed : candidate.traits[CHAIN_SLOT_TRAIT_KEY[slotKey]];
+    candDist[slotKey] = val ? { [val]: 1 } : {};
+  }
+  const dist = {};
+  for (const slotKey in CHAIN_SLOTS) dist[slotKey] = crossSlotDistribution(slotKey, state.dist[slotKey], candDist[slotKey]);
+  const usedIds = new Set(state.usedIds);
+  usedIds.add(candidate.id);
+  return { usedIds, dist, steps: state.steps.concat([{ type: 'cross', dragon: candidate }]) };
+}
+
+function distMatch(dist, goalName) {
+  if (!dist || !Object.keys(dist).length) return null;
+  let matched = 0;
+  for (const k in dist) if (namesEqual(k, goalName)) matched += dist[k];
+  return matched;
+}
+
+// Optimistic during search: a goal slot with no data yet anywhere in the
+// chain doesn't penalize the branch (it just hasn't picked up a
+// contributing ancestor yet), but once a slot IS resolved a non-match
+// legitimately zeroes the branch out.
+function chainRankScore(state, goals) {
+  let product = 1;
+  for (const slotKey in goals) {
+    const goalName = goals[slotKey];
+    if (!goalName) continue;
+    const m = distMatch(state.dist[slotKey], goalName);
+    if (m !== null) product *= m;
+  }
+  return product;
+}
+
+// Final probability of hitting every requested goal at once with this
+// state - null if any goal slot still has no data anywhere in the chain.
+function chainJointProbability(state, goals) {
+  let product = 1;
+  for (const slotKey in goals) {
+    const goalName = goals[slotKey];
+    if (!goalName) continue;
+    const m = distMatch(state.dist[slotKey], goalName);
+    if (m === null) return null;
+    product *= m;
+  }
+  return product;
+}
+
+const CHAIN_MAX_DEPTH = 5;
+const CHAIN_BEAM_WIDTH = 30;
+
+function searchBreedingChains(goals) {
+  const dragons = state.dragons;
+  const byId = {};
+  dragons.forEach(d => { byId[d.id] = d; });
+  // frontier starts at 0 crosses (each dragon just as it already is) and
+  // grows by one cross per iteration, so scoring happens at every step
+  // count from "you already own a match" up through CHAIN_MAX_DEPTH.
+  let frontier = dragons.map(makeChainLeaf);
+  let best = null;
+
+  for (let numCrosses = 0; numCrosses <= CHAIN_MAX_DEPTH; numCrosses++) {
+    frontier.forEach(s => {
+      const score = chainJointProbability(s, goals);
+      if (score !== null && (!best || score > best.score + 1e-12)) {
+        best = { state: s, score, steps: numCrosses };
+      }
+    });
+    if (numCrosses === CHAIN_MAX_DEPTH) break;
+
+    const next = [];
+    frontier.forEach(s => {
+      dragons.forEach(candidate => {
+        if (!chainBreedable(s, candidate, byId)) return;
+        const ns = crossChainState(s, candidate);
+        ns.rank = chainRankScore(ns, goals); // computed once, not per comparison
+        next.push(ns);
+      });
+    });
+    next.sort((a, b) => b.rank - a.rank);
+    frontier = next.slice(0, CHAIN_BEAM_WIDTH);
+    if (!frontier.length) break;
+  }
+  return best;
+}
+
 function pctText(x) {
   if (x === 0) return '0%';
   if (x < 0.001) return '<0.1%';
@@ -1396,6 +1657,54 @@ function renderSlotBlock(title, result, goalName) {
   return block;
 }
 
+const CHAIN_DIST_ROW_CAP = 15;
+
+// Renders a raw {name: probability} distribution as ranked rows - used for
+// breeding-plan results, since a multi-step chain's outcome isn't a single
+// simple range or a two-way split like a direct pairing's.
+function renderDistBlock(title, dist, goalName, isColor) {
+  const block = document.createElement('div');
+  block.className = 'calc-slot';
+  const nameEl = document.createElement('div');
+  nameEl.className = 'slot-name';
+  nameEl.textContent = title;
+  block.appendChild(nameEl);
+
+  const entries = Object.entries(dist).filter(([, pct]) => pct > 0.0005).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) {
+    const n = document.createElement('div');
+    n.className = 'slot-note';
+    n.textContent = 'None of the dragons in this plan have this trait recorded.';
+    block.appendChild(n);
+    return block;
+  }
+
+  entries.slice(0, CHAIN_DIST_ROW_CAP).forEach(([name, pct]) => {
+    const row = document.createElement('div');
+    const isGoal = goalName && namesEqual(goalName, name);
+    row.className = 'slot-row' + (isGoal ? ' goal-hit' : '');
+    let label = escapeHtml(name);
+    if (isColor) {
+      const id = findIdByName(DATA.colors, name);
+      const hex = id ? DATA.colors[id].hex : '#888';
+      label = '<span class="calc-color-swatch inline" style="background:' + hex + '"></span>' + label;
+    }
+    row.innerHTML = '<span>' + label + '</span><span>' + pctText(pct) + '</span>';
+    block.appendChild(row);
+    const bar = document.createElement('div');
+    bar.className = 'calc-bar';
+    bar.innerHTML = '<div class="calc-bar-fill" style="width:' + (pct * 100) + '%"></div>';
+    block.appendChild(bar);
+  });
+  if (entries.length > CHAIN_DIST_ROW_CAP) {
+    const n = document.createElement('div');
+    n.className = 'slot-note';
+    n.textContent = '+' + (entries.length - CHAIN_DIST_ROW_CAP) + ' more possible, each less likely.';
+    block.appendChild(n);
+  }
+  return block;
+}
+
 function populateCalcDatalists() {
   const fill = (elId, table) => {
     const el = document.getElementById(elId);
@@ -1448,6 +1757,7 @@ function setCalcTab(tab) {
   els.calcTabSearch.classList.toggle('active', tab === 'search');
   els.calcPredictPanel.style.display = tab === 'predict' ? '' : 'none';
   els.calcSearchPanel.style.display = tab === 'search' ? '' : 'none';
+  els.calcRunBtn.textContent = tab === 'predict' ? 'Calculate' : 'Find Breeding Plan';
   els.calcResults.innerHTML = '';
 }
 
@@ -1503,45 +1813,77 @@ function runPredict() {
   out.appendChild(container);
 }
 
+const CHAIN_GOAL_FIELDS = [
+  { key: 'breed', label: 'Breed', isColor: false, el: els.calcGoalBreed },
+  { key: 'primaryColor', label: 'Primary Color', isColor: true, el: els.calcGoalPrimaryColor },
+  { key: 'primaryGene', label: 'Primary Gene', isColor: false, el: els.calcGoalPrimaryGene },
+  { key: 'secondaryColor', label: 'Secondary Color', isColor: true, el: els.calcGoalSecondaryColor },
+  { key: 'secondaryGene', label: 'Secondary Gene', isColor: false, el: els.calcGoalSecondaryGene },
+  { key: 'tertiaryColor', label: 'Tertiary Color', isColor: true, el: els.calcGoalTertiaryColor },
+  { key: 'tertiaryGene', label: 'Tertiary Gene', isColor: false, el: els.calcGoalTertiaryGene },
+];
+
 function runSearch() {
-  const parents = getCalcParents();
-  if (!parents) return;
-  const { p1, p2, out } = parents;
+  const out = els.calcResults;
+  out.innerHTML = '';
 
-  const fields = [
-    { label: 'Breed', el: els.calcGoalBreed, eval: (goal) => evalBreedSlot(p1, p2, goal) },
-    { label: 'Primary Color', el: els.calcGoalPrimaryColor, eval: (goal) => evalColorSlot(p1.traits.primaryColor, p2.traits.primaryColor, goal) },
-    { label: 'Primary Gene', el: els.calcGoalPrimaryGene, eval: (goal) => evalGeneSlot('primaryGenes', p1.traits.primaryGene, p2.traits.primaryGene, goal) },
-    { label: 'Secondary Color', el: els.calcGoalSecondaryColor, eval: (goal) => evalColorSlot(p1.traits.secondaryColor, p2.traits.secondaryColor, goal) },
-    { label: 'Secondary Gene', el: els.calcGoalSecondaryGene, eval: (goal) => evalGeneSlot('secondaryGenes', p1.traits.secondaryGene, p2.traits.secondaryGene, goal) },
-    { label: 'Tertiary Color', el: els.calcGoalTertiaryColor, eval: (goal) => evalColorSlot(p1.traits.tertiaryColor, p2.traits.tertiaryColor, goal) },
-    { label: 'Tertiary Gene', el: els.calcGoalTertiaryGene, eval: (goal) => evalGeneSlot('tertiaryGenes', p1.traits.tertiaryGene, p2.traits.tertiaryGene, goal) },
-  ];
-
-  const active = fields
-    .map(f => ({ label: f.label, goal: f.el.value.trim(), eval: f.eval }))
-    .filter(f => f.goal)
-    .map(f => ({ label: f.label, goal: f.goal, result: f.eval(f.goal) }));
-
-  if (!active.length) {
+  const goals = {};
+  CHAIN_GOAL_FIELDS.forEach(f => {
+    const val = f.el.value.trim();
+    if (val) goals[f.key] = val;
+  });
+  if (!Object.keys(goals).length) {
     out.innerHTML = '<p class="hint" style="margin-top:14px;">Enter at least one trait you’re looking for.</p>';
+    return;
+  }
+  if (state.dragons.length < 2) {
+    out.innerHTML = '<p class="hint" style="margin-top:14px;">Add at least two dragons to search for a breeding plan.</p>';
+    return;
+  }
+
+  const best = searchBreedingChains(goals);
+  if (!best || best.score === 0) {
+    out.innerHTML = '<div class="inbreed-warning">⚠ None of your recorded dragons carry these traits, even through a hypothetical chain up to 5 steps deep - so there\'s no way to reach this combo from what\'s on file.</div>';
     return;
   }
 
   const container = document.createElement('div');
-  const contributions = active.map(f => f.result.goalPct);
-  const anyUnknown = contributions.some(c => c === null || c === undefined);
   const totalBlock = document.createElement('div');
   totalBlock.className = 'calc-total';
-  if (anyUnknown) {
-    totalBlock.innerHTML = '<span class="label">Total probability</span>Can’t calculate for every trait — see notes below';
-  } else {
-    const total = contributions.reduce((a, b) => a * b, 1);
-    totalBlock.innerHTML = '<span class="label">Total probability of this exact combo</span>' + pctText(total);
-  }
+  const stepWord = best.steps === 0 ? 'you already own a match' : (best.steps + ' breeding step' + (best.steps === 1 ? '' : 's'));
+  totalBlock.innerHTML = '<span class="label">Best plan found (' + stepWord + ')</span>' + pctText(best.score);
   container.appendChild(totalBlock);
 
-  active.forEach(f => container.appendChild(renderSlotBlock(f.label, f.result, f.goal)));
+  const stepsDiv = document.createElement('div');
+  stepsDiv.className = 'chain-steps';
+  const leafDragon = best.state.steps[0].dragon;
+  if (best.state.steps.length === 1) {
+    const line = document.createElement('div');
+    line.className = 'chain-step';
+    line.innerHTML = 'You already own <b>' + escapeHtml(leafDragon.nickname || 'Unnamed') + '</b> - no breeding needed.';
+    stepsDiv.appendChild(line);
+  } else {
+    for (let i = 1; i < best.state.steps.length; i++) {
+      const stepName = escapeHtml(best.state.steps[i].dragon.nickname || 'Unnamed');
+      const priorLabel = i === 1 ? '<b>' + escapeHtml(leafDragon.nickname || 'Unnamed') + '</b>' : 'that offspring';
+      const line = document.createElement('div');
+      line.className = 'chain-step';
+      line.innerHTML = i + '. Breed ' + priorLabel + ' × <b>' + stepName + '</b>';
+      stepsDiv.appendChild(line);
+    }
+  }
+  if (best.state.steps.length > 2) {
+    const note = document.createElement('div');
+    note.className = 'chain-note';
+    note.textContent = 'Only the first cross above is checked for gender, Ancient-breed and inbreeding rules using your recorded dragons - later steps use a hypothetical offspring, so double-check gender and relatedness once you actually hatch one.';
+    stepsDiv.appendChild(note);
+  }
+  container.appendChild(stepsDiv);
+
+  CHAIN_GOAL_FIELDS.forEach(f => {
+    if (!goals[f.key]) return;
+    container.appendChild(renderDistBlock(f.label, best.state.dist[f.key], goals[f.key], f.isColor));
+  });
 
   out.appendChild(container);
 }
