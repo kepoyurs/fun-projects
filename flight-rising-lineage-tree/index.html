@@ -159,16 +159,6 @@
   #canvas { position: relative; min-width: 100%; min-height: 100%; }
   #lines { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
   .tree-block { margin-bottom: 8px; }
-  .cluster-header {
-    display: inline-block;
-    font-size: 0.8rem;
-    font-weight: 700;
-    color: var(--accent);
-    margin: 4px 0 18px;
-    padding-bottom: 5px;
-    border-bottom: 2px solid var(--card-border);
-  }
-  .cluster-header:not(:first-child) { margin-top: 30px; }
   .gen-row {
     display: flex;
     gap: 36px;
@@ -201,6 +191,7 @@
     transition: border-color 0.15s, transform 0.1s;
   }
   .dcard:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .dcard.positioned { position: absolute; }
   .dcard .imgwrap {
     width: 100%;
     height: 90px;
@@ -1276,88 +1267,160 @@ function buildGenRows(dragonIds, byId, effGen, certain, showLineageTag) {
   return block;
 }
 
-// Undirected connectivity over parent + mate links (parent edges are stored
-// one-directional on the child, so children-of-this-dragon are found via a
-// reverse lookup). Two dragons end up in the same component the moment ANY
-// chain of parent or mate links connects them - including across lineages.
-function computeConnectedComponents(dragonIds, byId) {
-  const idSet = new Set(dragonIds);
-  const childrenOf = {};
-  state.dragons.forEach(d => {
-    [d.parent1, d.parent2].forEach(pid => {
-      if (!pid) return;
-      (childrenOf[pid] = childrenOf[pid] || []).push(d.id);
+// A physics-based layout for the unified "All lineages" view: no generation
+// grid at all. Every dragon repels every other dragon; every parent and mate
+// edge acts as a spring pulling its two dragons together. Actually-connected
+// families settle into tight, readable clusters purely because edges pull
+// them there; unrelated lineages drift apart because nothing pulls them
+// together - no manual clustering or row bucketing needed to get either
+// effect. Generation only biases the starting position (older near the top),
+// as a hint the springs are free to override.
+function computeForceLayout(dragonIds, byId, effGen) {
+  const nodes = {};
+  let minGen = Infinity, maxGen = -Infinity;
+  dragonIds.forEach(id => {
+    minGen = Math.min(minGen, effGen[id]);
+    maxGen = Math.max(maxGen, effGen[id]);
+  });
+  const genSpan = Math.max(maxGen - minGen, 1);
+
+  dragonIds.forEach((id, i) => {
+    const angle = (i / Math.max(dragonIds.length, 1)) * Math.PI * 2;
+    const radius = 60 + (i % 6) * 45;
+    nodes[id] = {
+      x: Math.cos(angle) * radius + (Math.random() - 0.5) * 20,
+      y: ((effGen[id] - minGen) / genSpan) * 480 + (Math.random() - 0.5) * 30,
+      vx: 0, vy: 0,
+    };
+  });
+
+  const edges = [];
+  const seenMates = new Set();
+  dragonIds.forEach(id => {
+    const d = byId[id];
+    if (d.parent1 && nodes[d.parent1]) edges.push([id, d.parent1]);
+    if (d.parent2 && nodes[d.parent2]) edges.push([id, d.parent2]);
+    (d.mates || []).forEach(m => {
+      if (!nodes[m]) return;
+      const key = [id, m].sort().join('|');
+      if (seenMates.has(key)) return;
+      seenMates.add(key);
+      edges.push([id, m]);
     });
   });
 
-  const visited = new Set();
-  const components = [];
-  dragonIds.forEach(startId => {
-    if (visited.has(startId)) return;
-    const comp = [];
-    const stack = [startId];
-    visited.add(startId);
-    while (stack.length) {
-      const id = stack.pop();
-      comp.push(id);
-      const d = byId[id];
-      if (!d) continue;
-      const neighbors = [d.parent1, d.parent2, ...(d.mates || []), ...(childrenOf[id] || [])];
-      neighbors.forEach(nId => {
-        if (nId && idSet.has(nId) && !visited.has(nId)) {
-          visited.add(nId);
-          stack.push(nId);
-        }
-      });
+  const REPULSION = 26000;
+  const SPRING = 0.03;
+  const SPRING_LEN = 210;
+  const DAMPING = 0.82;
+  // a weak pull toward the origin - without it, repulsion between components
+  // that share no edge (nothing to hold them back) drifts them apart forever,
+  // spreading fully unrelated dragons across a canvas thousands of pixels wide
+  const CENTER_PULL = 0.0025;
+  const iterations = Math.min(260, Math.max(120, dragonIds.length * 3));
+
+  for (let iter = 0; iter < iterations; iter++) {
+    for (let i = 0; i < dragonIds.length; i++) {
+      for (let j = i + 1; j < dragonIds.length; j++) {
+        const a = nodes[dragonIds[i]], b = nodes[dragonIds[j]];
+        const dx = a.x - b.x, dy = a.y - b.y;
+        let d2 = dx * dx + dy * dy;
+        if (d2 < 25) d2 = 25;
+        const dist = Math.sqrt(d2);
+        const force = REPULSION / d2;
+        const fx = (dx / dist) * force, fy = (dy / dist) * force;
+        a.vx += fx; a.vy += fy;
+        b.vx -= fx; b.vy -= fy;
+      }
     }
-    components.push(comp);
-  });
-  return components;
-}
-
-function lineageLabelForComponent(componentIds, byId) {
-  const names = new Set(componentIds.map(id => dragonLineage(byId[id])));
-  return Array.from(names)
-    .sort((a, b) => a === UNASSIGNED ? 1 : b === UNASSIGNED ? -1 : a.localeCompare(b))
-    .join(' + ');
-}
-
-// The unified "All lineages" view abandons the single shared generation grid:
-// mixing every dragon into one set of Gen-N rows made unrelated challenges
-// look connected and turned every cross-cutting line into visual noise.
-// Instead each actually-connected family (by blood or by mate, including
-// crossbred pairs that merge two lineages) gets its own self-contained
-// mini-tree, stacked with a header naming which lineage(s) it spans. Fully
-// unpaired dragons are pooled into one trailing "Unpaired" block.
-function renderUnifiedClusters(canvas, visible, byId, effGen, certain) {
-  const ids = visible.map(d => d.id);
-  const components = computeConnectedComponents(ids, byId);
-  const multi = components.filter(c => c.length > 1);
-  const singles = components.filter(c => c.length === 1).map(c => c[0]);
-
-  multi
-    .slice()
-    .sort((a, b) => b.length - a.length || lineageLabelForComponent(a, byId).localeCompare(lineageLabelForComponent(b, byId)))
-    .forEach(componentIds => {
-      const header = document.createElement('div');
-      header.className = 'cluster-header';
-      header.textContent = lineageLabelForComponent(componentIds, byId) + ' · ' + componentIds.length + ' dragons';
-      canvas.appendChild(header);
-      canvas.appendChild(buildGenRows(componentIds, byId, effGen, certain, true));
+    edges.forEach(([id1, id2]) => {
+      const a = nodes[id1], b = nodes[id2];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const force = (dist - SPRING_LEN) * SPRING;
+      const fx = (dx / dist) * force, fy = (dy / dist) * force;
+      a.vx += fx; a.vy += fy;
+      b.vx -= fx; b.vy -= fy;
     });
-
-  if (singles.length) {
-    const header = document.createElement('div');
-    header.className = 'cluster-header';
-    header.textContent = 'Unpaired dragons · ' + singles.length;
-    canvas.appendChild(header);
-    canvas.appendChild(buildGenRows(singles, byId, effGen, certain, true));
+    dragonIds.forEach(id => {
+      const n = nodes[id];
+      n.vx += -n.x * CENTER_PULL;
+      n.vy += -n.y * CENTER_PULL;
+      n.vx *= DAMPING; n.vy *= DAMPING;
+      n.x += n.vx; n.y += n.vy;
+    });
   }
+
+  // the simulation treats cards as points; this pass nudges apart any whose
+  // actual rectangular footprints still ended up overlapping
+  const CARD_W = 168, CARD_H = 210;
+  for (let pass = 0; pass < 60; pass++) {
+    let moved = false;
+    for (let i = 0; i < dragonIds.length; i++) {
+      for (let j = i + 1; j < dragonIds.length; j++) {
+        const a = nodes[dragonIds[i]], b = nodes[dragonIds[j]];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        if (dx === 0 && dy === 0) { dx = 0.5; dy = 0.5; }
+        const overlapX = CARD_W - Math.abs(dx);
+        const overlapY = CARD_H - Math.abs(dy);
+        if (overlapX > 0 && overlapY > 0) {
+          moved = true;
+          if (overlapX < overlapY) {
+            const push = overlapX / 2 + 2;
+            const dir = dx < 0 ? -1 : 1;
+            a.x -= dir * push;
+            b.x += dir * push;
+          } else {
+            const push = overlapY / 2 + 2;
+            const dir = dy < 0 ? -1 : 1;
+            a.y -= dir * push;
+            b.y += dir * push;
+          }
+        }
+      }
+    }
+    if (!moved) break;
+  }
+
+  return nodes;
 }
+
+function renderForceGraph(canvas, visible, byId, effGen, certain) {
+  const ids = visible.map(d => d.id);
+  const positions = computeForceLayout(ids, byId, effGen);
+  const CARD_W = 168, CARD_H = 210;
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  ids.forEach(id => {
+    const p = positions[id];
+    minX = Math.min(minX, p.x - CARD_W / 2);
+    minY = Math.min(minY, p.y - CARD_H / 2);
+    maxX = Math.max(maxX, p.x + CARD_W / 2);
+    maxY = Math.max(maxY, p.y + CARD_H / 2);
+  });
+  const pad = 60;
+  const offsetX = pad - minX, offsetY = pad - minY;
+  canvas.style.width = ((maxX - minX) + pad * 2) + 'px';
+  canvas.style.height = ((maxY - minY) + pad * 2) + 'px';
+
+  ids.forEach(id => {
+    const d = byId[id];
+    const p = positions[id];
+    const card = buildCard(d, certain[id], true);
+    card.classList.add('positioned');
+    card.style.left = (p.x + offsetX - CARD_W / 2) + 'px';
+    card.style.top = (p.y + offsetY - CARD_H / 2) + 'px';
+    canvas.appendChild(card);
+  });
+}
+
+let lastRenderWasForceMode = false;
 
 function renderTree() {
   const canvas = els.canvas;
-  Array.from(canvas.querySelectorAll('.tree-block, .cluster-header')).forEach(el => el.remove());
+  Array.from(canvas.children).forEach(el => { if (el !== els.linesSvg) el.remove(); });
+  canvas.style.width = '';
+  canvas.style.height = '';
 
   const visible = getVisibleDragons();
 
@@ -1375,13 +1438,14 @@ function renderTree() {
   const byId = {};
   state.dragons.forEach(d => byId[d.id] = d);
 
-  if (currentFilter === 'ALL') {
-    renderUnifiedClusters(canvas, visible, byId, effGen, certain);
+  lastRenderWasForceMode = currentFilter === 'ALL';
+  if (lastRenderWasForceMode) {
+    renderForceGraph(canvas, visible, byId, effGen, certain);
   } else {
     canvas.appendChild(buildGenRows(visible.map(d => d.id), byId, effGen, certain, false));
   }
 
-  requestAnimationFrame(drawLines);
+  requestAnimationFrame(() => drawLines(lastRenderWasForceMode));
 }
 
 function buildCard(d, isGenCertain, showLineageTag) {
@@ -1472,7 +1536,7 @@ function buildCard(d, isGenCertain, showLineageTag) {
   return card;
 }
 
-function drawLines() {
+function drawLines(forceMode) {
   const canvas = els.canvas;
   const canvasRect = canvas.getBoundingClientRect();
   const svg = els.linesSvg;
@@ -1484,6 +1548,8 @@ function drawLines() {
   canvas.querySelectorAll('.dcard').forEach(card => {
     const r = card.getBoundingClientRect();
     centers[card.dataset.id] = {
+      cx: r.left - canvasRect.left + r.width / 2,
+      cy: r.top - canvasRect.top + r.height / 2,
       topX: r.left - canvasRect.left + r.width / 2,
       topY: r.top - canvasRect.top,
       botX: r.left - canvasRect.left + r.width / 2,
@@ -1495,6 +1561,42 @@ function drawLines() {
   });
 
   const ns = 'http://www.w3.org/2000/svg';
+
+  if (forceMode) {
+    // Free-form graph: no grid to route around, so every edge is just the
+    // straight line between the two card centers - the shortest, clearest path.
+    state.dragons.forEach(d => {
+      [d.parent1, d.parent2].forEach(pid => {
+        if (!pid || !centers[pid] || !centers[d.id]) return;
+        const p = centers[pid], c = centers[d.id];
+        const line = document.createElementNS(ns, 'line');
+        line.setAttribute('x1', p.cx); line.setAttribute('y1', p.cy);
+        line.setAttribute('x2', c.cx); line.setAttribute('y2', c.cy);
+        line.setAttribute('stroke', 'var(--line-color)');
+        line.setAttribute('stroke-width', '2');
+        svg.appendChild(line);
+      });
+    });
+    const drawnMatePairs = new Set();
+    state.dragons.forEach(d => {
+      (d.mates || []).forEach(mateId => {
+        if (!centers[d.id] || !centers[mateId]) return;
+        const pairKey = [d.id, mateId].sort().join('|');
+        if (drawnMatePairs.has(pairKey)) return;
+        drawnMatePairs.add(pairKey);
+        const a = centers[d.id], b = centers[mateId];
+        const line = document.createElementNS(ns, 'line');
+        line.setAttribute('x1', a.cx); line.setAttribute('y1', a.cy);
+        line.setAttribute('x2', b.cx); line.setAttribute('y2', b.cy);
+        line.setAttribute('stroke', 'var(--mate-line)');
+        line.setAttribute('stroke-width', '2');
+        line.setAttribute('stroke-dasharray', '5,4');
+        svg.appendChild(line);
+      });
+    });
+    return;
+  }
+
   state.dragons.forEach(d => {
     [d.parent1, d.parent2].forEach(pid => {
       if (!pid || !centers[pid] || !centers[d.id]) return;
@@ -1552,7 +1654,7 @@ function renderAll() {
   renderTree();
 }
 
-window.addEventListener('resize', () => requestAnimationFrame(drawLines));
+window.addEventListener('resize', () => requestAnimationFrame(() => drawLines(lastRenderWasForceMode)));
 
 renderAll();
 </script>
