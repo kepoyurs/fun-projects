@@ -1044,6 +1044,21 @@ els.saveBtn.addEventListener('click', () => {
     state.dragons.push(record);
   }
   setMateList(record.id, formMates);
+  // an existing dragon picked from the Mates "Add" dropdown keeps whatever
+  // lineage it already had, so it'd stay invisible on this lineage's own
+  // grid view (visibility there is strictly by tag). Pull only the mates
+  // newly linked in this save into the lineage currently being viewed, so
+  // they actually show up on the tree you just added them to.
+  if (currentFilter !== 'ALL' && currentFilter !== UNASSIGNED) {
+    formMates
+      .filter(id => !priorMates.includes(id))
+      .forEach(mateId => {
+        const mateDragon = state.dragons.find(x => x.id === mateId);
+        if (mateDragon && mateDragon.lineage !== currentFilter) {
+          mateDragon.lineage = currentFilter;
+        }
+      });
+  }
   saveState();
   resetForm();
   renderAll();
