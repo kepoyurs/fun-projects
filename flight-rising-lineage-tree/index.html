@@ -1121,6 +1121,12 @@ function escapeHtml(s) {
 // even across lineages, and even when one side's generation is a total unknown -
 // so cross-lineage pairings and auction-house mates still render side by side.
 // Explicit numbers (and defaults) only ever get raised, never lowered, by either rule.
+// A dragon's row is its own true generation - purely from its own parents (or an
+// explicit number). Mates are deliberately NOT equalized into the same row here:
+// forcing that used to flatten real structure, making a 2nd-gen dragon LOOK like
+// Gen 1 (or vice versa) just because it's paired across generations. Rows stay
+// honest; renderTree() is responsible for drawing that pairing as a clear
+// cross-row connector and nudging the two dragons visually close instead.
 function computeGenerations() {
   const byId = {};
   state.dragons.forEach(d => byId[d.id] = d);
@@ -1130,7 +1136,7 @@ function computeGenerations() {
   let changed = true;
   let guard = 0;
   const n = state.dragons.length;
-  while (changed && guard < n * 4 + 20) {
+  while (changed && guard < n + 4) {
     changed = false;
     guard++;
     state.dragons.forEach(d => {
@@ -1139,22 +1145,14 @@ function computeGenerations() {
       if (d.parent2 && byId[d.parent2]) need = Math.max(need, effGen[d.parent2] + 1);
       if (need > effGen[d.id]) { effGen[d.id] = need; changed = true; }
     });
-    state.dragons.forEach(d => {
-      (d.mates || []).forEach(mateId => {
-        if (!byId[mateId]) return;
-        const shared = Math.max(effGen[d.id], effGen[mateId]);
-        if (effGen[d.id] !== shared) { effGen[d.id] = shared; changed = true; }
-        if (effGen[mateId] !== shared) { effGen[mateId] = shared; changed = true; }
-      });
-    });
   }
   return effGen;
 }
 
 // A dragon's row is "certain" only if it traces back to an explicit generation
-// number somewhere - its own, an ancestor's, or a mate's (transitively). Anything
-// that only ever hit the row-1 default is flagged so the tree can say "Unknown"
-// instead of quietly implying it's a confirmed founder.
+// number somewhere - its own or an ancestor's. Anything that only ever hit the
+// row-1 default is flagged so the tree can say "Unknown" instead of quietly
+// implying it's a confirmed founder.
 function computeGenerationCertainty() {
   const byId = {};
   state.dragons.forEach(d => byId[d.id] = d);
@@ -1164,7 +1162,7 @@ function computeGenerationCertainty() {
   let changed = true;
   let guard = 0;
   const n = state.dragons.length;
-  while (changed && guard < n * 4 + 20) {
+  while (changed && guard < n + 4) {
     changed = false;
     guard++;
     state.dragons.forEach(d => {
@@ -1173,12 +1171,6 @@ function computeGenerationCertainty() {
         certain[d.id] = true;
         changed = true;
       }
-    });
-    state.dragons.forEach(d => {
-      if (!certain[d.id]) return;
-      (d.mates || []).forEach(mateId => {
-        if (byId[mateId] && !certain[mateId]) { certain[mateId] = true; changed = true; }
-      });
     });
   }
   return certain;
@@ -1207,25 +1199,46 @@ function renderTree() {
   const genNums = Array.from(new Set(visible.map(d => effGen[d.id]))).sort((a, b) => a - b);
   let rows = genNums.map(g => visible.filter(d => effGen[d.id] === g).map(d => d.id));
 
-  // barycenter ordering passes to reduce line crossings
-  for (let pass = 0; pass < 3; pass++) {
-    for (let r = 1; r < rows.length; r++) {
-      const prevIndex = {};
-      rows[r - 1].forEach((id, i) => prevIndex[id] = i);
-      rows[r] = rows[r].slice().sort((a, b) => {
-        const da = byId[a], db = byId[b];
-        const pa = [da.parent1, da.parent2].filter(p => p && prevIndex[p] !== undefined).map(p => prevIndex[p]);
-        const pb = [db.parent1, db.parent2].filter(p => p && prevIndex[p] !== undefined).map(p => prevIndex[p]);
-        const avgA = pa.length ? pa.reduce((s, x) => s + x, 0) / pa.length : 999;
-        const avgB = pb.length ? pb.reduce((s, x) => s + x, 0) / pb.length : 999;
-        return avgA - avgB;
-      });
-    }
+  // Barycenter ordering: pulls each dragon toward the horizontal position of its
+  // parents AND its mates, wherever those rows are - above, below, or the same
+  // row. Alternating pass direction lets a mate's pull propagate both ways
+  // (a mate can be several generations off in either direction). This keeps
+  // cross-generation pairs visually close without ever moving them into the
+  // same row - that's what the connector line is for.
+  const rowOf = {};
+  rows.forEach((ids, r) => ids.forEach(id => rowOf[id] = r));
+
+  function fractionalPositions(rowIds) {
+    const pos = {};
+    const denom = Math.max(rowIds.length - 1, 1);
+    rowIds.forEach((id, i) => pos[id] = i / denom);
+    return pos;
   }
 
-  // nudge mates to cluster next to each other within their row, when visible there.
-  // walks outward from each unplaced dragon through its mate links (breadth-first),
-  // so chains of mates (A-B, B-C) end up adjacent too, not just direct pairs.
+  for (let pass = 0; pass < 4; pass++) {
+    const order = rows.map((_, r) => r);
+    if (pass % 2 === 1) order.reverse();
+    order.forEach(r => {
+      const posByRow = rows.map(fractionalPositions);
+      rows[r] = rows[r].slice().sort((a, b) => {
+        const score = (id) => {
+          const d = byId[id];
+          const neighbors = [];
+          if (d.parent1 && rowOf[d.parent1] !== undefined) neighbors.push(posByRow[rowOf[d.parent1]][d.parent1]);
+          if (d.parent2 && rowOf[d.parent2] !== undefined) neighbors.push(posByRow[rowOf[d.parent2]][d.parent2]);
+          (d.mates || []).forEach(m => {
+            if (rowOf[m] !== undefined) neighbors.push(posByRow[rowOf[m]][m]);
+          });
+          return neighbors.length ? neighbors.reduce((s, x) => s + x, 0) / neighbors.length : posByRow[r][id];
+        };
+        return score(a) - score(b);
+      });
+      rows[r].forEach(id => rowOf[id] = r);
+    });
+  }
+
+  // final pass: when mates DO land in the same row, pull them fully adjacent
+  // rather than just "close" - walks mate chains (A-B, B-C) breadth-first.
   rows = rows.map(rowIds => {
     const idSet = new Set(rowIds);
     const placed = new Set();
@@ -1405,15 +1418,26 @@ function drawLines() {
       let left = centers[d.id], right = centers[mateId];
       if (left.leftX > right.leftX) { const tmp = left; left = right; right = tmp; }
       const midX = (left.rightX + right.leftX) / 2;
+      const crossRow = Math.abs(left.midY - right.midY) > 10;
       const path = document.createElementNS(ns, 'path');
       const dAttr = 'M ' + left.rightX + ' ' + left.midY +
         ' C ' + midX + ' ' + left.midY + ', ' + midX + ' ' + right.midY + ', ' + right.leftX + ' ' + right.midY;
       path.setAttribute('d', dAttr);
       path.setAttribute('fill', 'none');
       path.setAttribute('stroke', 'var(--mate-line)');
-      path.setAttribute('stroke-width', '2');
+      path.setAttribute('stroke-width', crossRow ? '2.5' : '2');
       path.setAttribute('stroke-dasharray', '5,4');
       svg.appendChild(path);
+      if (crossRow) {
+        // a small marker at the midpoint flags this as a mate link spanning
+        // generations, so it doesn't get mistaken for a parent-child line
+        const dot = document.createElementNS(ns, 'circle');
+        dot.setAttribute('cx', midX);
+        dot.setAttribute('cy', (left.midY + right.midY) / 2);
+        dot.setAttribute('r', '4');
+        dot.setAttribute('fill', 'var(--mate-line)');
+        svg.appendChild(dot);
+      }
     });
   });
 }
