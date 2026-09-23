@@ -1535,7 +1535,8 @@ function distMatch(dist, goalName) {
 // Optimistic during search: a goal slot with no data yet anywhere in the
 // chain doesn't penalize the branch (it just hasn't picked up a
 // contributing ancestor yet), but once a slot IS resolved a non-match
-// legitimately zeroes the branch out.
+// legitimately zeroes the branch out. This alone isn't enough to pick a
+// good beam, though - see selectFrontier below for why.
 function chainRankScore(state, goals) {
   let product = 1;
   for (const slotKey in goals) {
@@ -1562,7 +1563,40 @@ function chainJointProbability(state, goals) {
 }
 
 const CHAIN_MAX_DEPTH = 5;
-const CHAIN_BEAM_WIDTH = 30;
+const CHAIN_BEAM_WIDTH = 60;
+const CHAIN_PER_SLOT_WIDTH = 20;
+
+// A single joint-score beam is a trap: a chain that's already resolved 2 of
+// 3 wanted colors and only whiffed the 3rd ranks BELOW a chain that hasn't
+// touched any of them yet (product treats "no data" as neutral, matching
+// as low as 0) - so the genuinely promising chain gets pruned before it
+// ever gets a shot at a cross that fixes the one bad slot, and the search
+// converges on "give up on that trait" instead of "one more cross away".
+// Countering this: after ranking by the overall joint score, also keep -
+// per goal slot, separately - whichever surviving chains are making the
+// best progress on JUST that slot, even if their other slots are still
+// unresolved or currently a miss. That guarantees a chain doing well on
+// N-1 of N traits stays alive long enough to attempt the Nth.
+function selectFrontier(next, goals) {
+  next.sort((a, b) => b.rank - a.rank);
+  const frontier = next.slice(0, CHAIN_BEAM_WIDTH);
+  const kept = new Set(frontier);
+
+  for (const slotKey in goals) {
+    const goalName = goals[slotKey];
+    if (!goalName) continue;
+    const bySlot = next
+      .map(s => ({ s, m: distMatch(s.dist[slotKey], goalName) }))
+      .filter(x => x.m !== null && x.m > 0)
+      .sort((a, b) => b.m - a.m);
+    let added = 0;
+    for (const { s } of bySlot) {
+      if (added >= CHAIN_PER_SLOT_WIDTH) break;
+      if (!kept.has(s)) { frontier.push(s); kept.add(s); added++; }
+    }
+  }
+  return frontier;
+}
 
 function searchBreedingChains(goals) {
   const dragons = state.dragons;
@@ -1592,8 +1626,7 @@ function searchBreedingChains(goals) {
         next.push(ns);
       });
     });
-    next.sort((a, b) => b.rank - a.rank);
-    frontier = next.slice(0, CHAIN_BEAM_WIDTH);
+    frontier = selectFrontier(next, goals);
     if (!frontier.length) break;
   }
   return best;
@@ -1850,6 +1883,20 @@ function runSearch() {
     return;
   }
 
+  // The search over a large roster can take real time (it's exploring
+  // hypothetical chains, not a single lookup), so show a spinner state and
+  // let the browser paint it before the blocking work starts - otherwise
+  // the button click just looks like it did nothing for a second or two.
+  out.innerHTML = '<p class="hint" style="margin-top:14px;">Searching your roster for the best breeding plan&hellip;</p>';
+  els.calcRunBtn.disabled = true;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    finishRunSearch(goals, out);
+    els.calcRunBtn.disabled = false;
+  }));
+}
+
+function finishRunSearch(goals, out) {
+  out.innerHTML = '';
   const best = searchBreedingChains(goals);
   if (!best || best.score === 0) {
     out.innerHTML = '<div class="inbreed-warning">⚠ None of your recorded dragons carry these traits, even through a hypothetical chain up to 5 steps deep - so there\'s no way to reach this combo from what\'s on file.</div>';
