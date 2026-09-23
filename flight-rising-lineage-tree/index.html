@@ -294,6 +294,12 @@
   .chain-step { font-size: 0.85rem; padding: 3px 0; }
   .chain-step b { color: var(--accent); }
   .chain-note { font-size: 0.72rem; color: var(--text-muted); font-style: italic; margin-top: 8px; }
+  .chain-step-outcome {
+    margin: 2px 0 10px 18px; padding: 8px 10px 2px;
+    border-left: 2px solid var(--border); background: var(--panel-bg);
+  }
+  .chain-step-outcome .calc-slot { margin-bottom: 8px; }
+  .chain-step-outcome .slot-name { font-size: 0.76rem; color: var(--text-muted); font-weight: 500; }
   .modal-actions { display: flex; gap: 8px; margin-top: 16px; }
   .modal-actions button { flex: 1; }
 
@@ -1513,7 +1519,10 @@ function crossChainState(state, candidate) {
   for (const slotKey in CHAIN_SLOTS) dist[slotKey] = crossSlotDistribution(slotKey, state.dist[slotKey], candDist[slotKey]);
   const usedIds = new Set(state.usedIds);
   usedIds.add(candidate.id);
-  return { usedIds, dist, steps: state.steps.concat([{ type: 'cross', dragon: candidate }]) };
+  // distAfter is a snapshot of this offspring's own spectrum, kept per step
+  // so the UI can show what each intermediate hypothetical could look like
+  // - not just the chain's final result.
+  return { usedIds, dist, steps: state.steps.concat([{ type: 'cross', dragon: candidate, distAfter: dist }]) };
 }
 
 function distMatch(dist, goalName) {
@@ -1864,12 +1873,29 @@ function runSearch() {
     stepsDiv.appendChild(line);
   } else {
     for (let i = 1; i < best.state.steps.length; i++) {
-      const stepName = escapeHtml(best.state.steps[i].dragon.nickname || 'Unnamed');
+      const step = best.state.steps[i];
+      const stepName = escapeHtml(step.dragon.nickname || 'Unnamed');
       const priorLabel = i === 1 ? '<b>' + escapeHtml(leafDragon.nickname || 'Unnamed') + '</b>' : 'that offspring';
       const line = document.createElement('div');
       line.className = 'chain-step';
       line.innerHTML = i + '. Breed ' + priorLabel + ' × <b>' + stepName + '</b>';
       stepsDiv.appendChild(line);
+
+      // Every step but the last produces an intermediate hypothetical that
+      // gets bred again - show what IT could look like, not just the
+      // chain's eventual final result (shown below for the last step).
+      const isFinalStep = i === best.state.steps.length - 1;
+      if (!isFinalStep) {
+        const outcomeDiv = document.createElement('div');
+        outcomeDiv.className = 'chain-step-outcome';
+        CHAIN_GOAL_FIELDS.forEach(f => {
+          if (!goals[f.key]) return;
+          const dist = step.distAfter[f.key];
+          if (!dist || !Object.keys(dist).length) return;
+          outcomeDiv.appendChild(renderDistBlock(f.label + ' - this offspring could be', dist, goals[f.key], f.isColor));
+        });
+        if (outcomeDiv.children.length) stepsDiv.appendChild(outcomeDiv);
+      }
     }
   }
   if (best.state.steps.length > 2) {
